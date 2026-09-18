@@ -1,0 +1,16 @@
+[package]
+name = "faster_async_trait"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "3", features = [ "full", "extra-traits" ] }
+quote = "1"
+rustc-hash = "2"
+async-trait = "0.1"
+
+[dev-dependencies]
+macrotest = "1"
