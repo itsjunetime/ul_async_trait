@@ -19,11 +19,20 @@ trait WithGenerics<const N: usize, T> {
 }
 struct MyStruct<T>(core::marker::PhantomData<T>);
 trait __async_bodies_of_WithGenerics_13478430068544323400<N, T> {
-    async fn make_multiple_13478430068544323400<A>(another: Wrapper<A>) -> [(T, A); N];
+    async fn make_multiple_13478430068544323400<'async_trait, A>(
+        another: Wrapper<A>,
+    ) -> [(T, A); N]
+    where
+        A: 'async_trait;
 }
 impl<const N: usize, T> __async_bodies_of_WithGenerics_13478430068544323400<N, T>
 for MyStruct<T> {
-    async fn make_multiple_13478430068544323400<A>(another: Wrapper<A>) -> [(T, A); N] {
+    async fn make_multiple_13478430068544323400<'async_trait, A>(
+        another: Wrapper<A>,
+    ) -> [(T, A); N]
+    where
+        A: 'async_trait,
+    {
         ::core::panicking::panic("not yet implemented")
     }
 }
@@ -44,7 +53,7 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
             <Self as __async_bodies_of_WithGenerics_13478430068544323400<
                 N,
                 T,
-            >>::make_multiple_13478430068544323400::<A>(another),
+            >>::make_multiple_13478430068544323400::<'async_trait, A>(another),
         )
     }
 }

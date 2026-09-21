@@ -7,7 +7,7 @@ use syn::{
     AngleBracketedGenericArguments, AssocType, Expr, ExprCall, ExprPath, FnArg, GenericArgument,
     GenericParam, Generics, Ident, ImplItem, ItemImpl, Lifetime, LifetimeParam, Pat, Path,
     PathArguments, PathSegment, PredicateLifetime, PredicateType, QSelf, ReceiverKind, ReturnType,
-    Stmt, TraitBound, TraitBoundModifiers, Type, TypeParamBound, TypePath,
+    Signature, Stmt, TraitBound, TraitBoundModifiers, Type, TypeParamBound, TypePath,
     TypeTraitObject, TypeTuple, WhereClause, WherePredicate, parse_macro_input,
     punctuated::Punctuated,
     token::{As, Colon, Dyn, Eq, Gt, Lt, Paren, PathSep, RArrow, SelfType, Where},
@@ -195,6 +195,68 @@ fn transform_sig_output(output: &mut ReturnType, async_trait_lt: &Lifetime) {
     );
 }
 
+fn add_lifetime_bounds(sig: &mut Signature, async_trait_lt: &Lifetime) {
+    sig.generics.lt_token = Some(Lt::default());
+    sig.generics.gt_token = Some(Gt::default());
+
+    for generic in sig.generics.params.pairs() {
+        let GenericParam::Type(ty) = generic.into_value() else {
+            continue;
+        };
+
+        let pred = WherePredicate::Type(PredicateType {
+            attrs: Vec::new(),
+            lifetimes: None,
+            bounded_ty: Type::Path(TypePath {
+                attrs: Vec::new(),
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter([PathSegment {
+                        ident: ty.ident.clone(),
+                        arguments: PathArguments::None,
+                    }]),
+                },
+            }),
+            colon_token: Colon::default(),
+            bounds: Punctuated::from_iter([TypeParamBound::Lifetime(async_trait_lt.clone())]),
+        });
+
+        match &mut sig.generics.where_clause {
+            Some(clause) => clause.predicates.push(pred),
+            None => {
+                sig.generics.where_clause = Some(WhereClause {
+                    where_token: Where::default(),
+                    predicates: Punctuated::from_iter([pred]),
+                })
+            }
+        }
+    }
+
+    let mut lifetime_modifier = LifetimeModifier {
+        found_lifetimes: 0,
+        bound_lts: Vec::new(),
+        async_trait_lt,
+        generics: &mut sig.generics,
+    };
+
+    let args = &mut sig.inputs;
+    for pair in args.pairs_mut() {
+        let arg = pair.into_value();
+
+        lifetime_modifier.visit_fn_arg_mut(arg);
+    }
+
+    sig.generics
+        .params
+        .push(GenericParam::Lifetime(LifetimeParam {
+            attrs: Vec::new(),
+            lifetime: async_trait_lt.clone(),
+            colon_token: None,
+            bounds: Punctuated::new(),
+        }));
+}
+
 struct LifetimeModifier<'a, 'b> {
     found_lifetimes: usize,
     bound_lts: Vec<Lifetime>,
@@ -310,6 +372,19 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     input.self_ty.hash(&mut hasher);
     let trait_suffix = hasher.finish();
 
+    let async_trait_lt = Lifetime {
+        apostrophe: Span::call_site(),
+        ident: format_ident!("async_trait"),
+    };
+
+    for item in &mut input.items {
+        if let ImplItem::Fn(f) = item
+            && f.sig.asyncness.is_some()
+        {
+            add_lifetime_bounds(&mut f.sig, &async_trait_lt);
+        }
+    }
+
     let async_fn_sigs = input.items.iter().filter_map(|item| match item {
         ImplItem::Fn(f) if f.sig.asyncness.is_some() => {
             let mut f_sig = f.sig.clone();
@@ -357,10 +432,6 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #new_trait_impl
     };
 
-    let async_trait_lt = Lifetime {
-        apostrophe: Span::call_site(),
-        ident: format_ident!("async_trait"),
-    };
     for item in &mut input.items {
         let ImplItem::Fn(f) = item else {
             continue;
@@ -398,71 +469,11 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         // And then change its return type to what async-trait does
         transform_sig_output(&mut f.sig.output, &async_trait_lt);
-        f.sig.generics.lt_token = Some(Lt::default());
-        f.sig.generics.gt_token = Some(Gt::default());
-
-        for generic in f.sig.generics.params.pairs() {
-            let GenericParam::Type(ty) = generic.into_value() else {
-                continue;
-            };
-
-            let pred = WherePredicate::Type(PredicateType {
-                attrs: Vec::new(),
-                lifetimes: None,
-                bounded_ty: Type::Path(TypePath {
-                    attrs: Vec::new(),
-                    qself: None,
-                    path: Path {
-                        leading_colon: None,
-                        segments: Punctuated::from_iter([PathSegment {
-                            ident: ty.ident.clone(),
-                            arguments: PathArguments::None,
-                        }]),
-                    },
-                }),
-                colon_token: Colon::default(),
-                bounds: Punctuated::from_iter([TypeParamBound::Lifetime(async_trait_lt.clone())]),
-            });
-
-            match &mut f.sig.generics.where_clause {
-                Some(clause) => clause.predicates.push(pred),
-                None => {
-                    f.sig.generics.where_clause = Some(WhereClause {
-                        where_token: Where::default(),
-                        predicates: Punctuated::from_iter([pred]),
-                    })
-                }
-            }
-        }
-
-        f.sig
-            .generics
-            .params
-            .push(GenericParam::Lifetime(LifetimeParam {
-                attrs: Vec::new(),
-                lifetime: async_trait_lt.clone(),
-                colon_token: None,
-                bounds: Punctuated::new(),
-            }));
-
-        let mut lifetime_modifier = LifetimeModifier {
-            found_lifetimes: 0,
-            bound_lts: Vec::new(),
-            async_trait_lt: &async_trait_lt,
-            generics: &mut f.sig.generics,
-        };
-
-        let args = &mut f.sig.inputs;
-        for pair in args.pairs_mut() {
-            let arg = pair.into_value();
-
-            lifetime_modifier.visit_fn_arg_mut(arg);
-        }
 
         let fn_name = &f.sig.ident;
 
         let mut new_args = Punctuated::new();
-        for pair in args.pairs() {
+        for pair in f.sig.inputs.pairs() {
             let arg = pair.into_value();
 
             let ident = match arg {

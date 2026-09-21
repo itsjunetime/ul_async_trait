@@ -1,70 +1,82 @@
-trait MyTrait {
+async fn other_future() {}
+trait Write {
     #[allow(
         elided_named_lifetimes,
         clippy::type_complexity,
         clippy::type_repetition_in_bounds
     )]
-    fn my_fn<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
+    fn write_str<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        s: &'life1 str,
     ) -> ::core::pin::Pin<
         Box<
             dyn ::core::future::Future<
-                Output = usize,
+                Output = String,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         'life0: 'async_trait,
+        'life1: 'async_trait,
         Self: 'async_trait;
 }
-struct MyStruct;
-trait __async_bodies_of_MyTrait_14302471173908516815 {
-    async fn my_fn_14302471173908516815<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
-    ) -> usize
-    where
-        Self: 'async_trait,
-        'life0: 'async_trait;
+struct MyStruct {
+    s: String,
 }
-impl __async_bodies_of_MyTrait_14302471173908516815 for MyStruct {
-    async fn my_fn_14302471173908516815<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
-    ) -> usize
+trait __async_bodies_of_Write_14302471173908516815 {
+    async fn write_str_14302471173908516815<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        s: &'life1 str,
+    ) -> String
     where
         Self: 'async_trait,
         'life0: 'async_trait,
+        'life1: 'async_trait;
+}
+impl __async_bodies_of_Write_14302471173908516815 for MyStruct {
+    async fn write_str_14302471173908516815<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        s: &'life1 str,
+    ) -> String
+    where
+        Self: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
     {
-        num + 1
+        self.s.push_str(s);
+        other_future().await;
+        self.s.clone()
     }
 }
-impl MyTrait for MyStruct {
-    fn my_fn<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
+impl Write for MyStruct {
+    fn write_str<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        s: &'life1 str,
     ) -> ::core::pin::Pin<
         ::std::boxed::Box<
             dyn ::core::future::Future<
-                Output = usize,
+                Output = String,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         Self: 'async_trait,
         'life0: 'async_trait,
+        'life1: 'async_trait,
     {
         ::std::boxed::Box::pin(
-            <Self as __async_bodies_of_MyTrait_14302471173908516815>::my_fn_14302471173908516815::<
+            <Self as __async_bodies_of_Write_14302471173908516815>::write_str_14302471173908516815::<
                 'life0,
+                'life1,
                 'async_trait,
-            >(self, num),
+            >(self, s),
         )
     }
 }
-struct MyStruct2;
-impl MyTrait for MyStruct2 {
+struct MyStructCorrect {
+    s: String,
+}
+impl Write for MyStructCorrect {
     #[allow(
         elided_named_lifetimes,
         clippy::async_yields_async,
@@ -77,29 +89,33 @@ impl MyTrait for MyStruct2 {
         clippy::type_repetition_in_bounds,
         clippy::used_underscore_binding
     )]
-    fn my_fn<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
+    fn write_str<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        s: &'life1 str,
     ) -> ::core::pin::Pin<
         Box<
             dyn ::core::future::Future<
-                Output = usize,
+                Output = String,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         'life0: 'async_trait,
+        'life1: 'async_trait,
         Self: 'async_trait,
     {
         Box::pin(async move {
             if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
-                usize,
+                String,
             > {
                 #[allow(unreachable_code)] return __ret;
             }
-            let __self = self;
-            let num = num;
-            let __ret: usize = { num + 1 };
+            let mut __self = self;
+            let __ret: String = {
+                __self.s.push_str(s);
+                other_future().await;
+                __self.s.clone()
+            };
             #[allow(unreachable_code)] __ret
         })
     }
