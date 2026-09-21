@@ -7,10 +7,11 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-syn = { version = "3", features = [ "full", "extra-traits" ] }
+syn = { version = "3", features = [ "full", "extra-traits", "visit-mut" ] }
+proc-macro2 = "1"
 quote = "1"
 rustc-hash = "2"
-async-trait = "0.1"
 
 [dev-dependencies]
 macrotest = "1"
+async-trait = "0.1"

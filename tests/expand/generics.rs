@@ -13,3 +13,5 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
         todo!()
     }
 }
+
+fn main() {}

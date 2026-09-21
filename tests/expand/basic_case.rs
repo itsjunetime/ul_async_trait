@@ -11,3 +11,5 @@ impl MyTrait for MyStruct {
         num + 1
     }
 }
+
+fn main() {}

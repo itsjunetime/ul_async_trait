@@ -28,22 +28,10 @@ for MyStruct<T> {
     }
 }
 impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
-    #[allow(
-        elided_named_lifetimes,
-        clippy::async_yields_async,
-        clippy::diverging_sub_expression,
-        clippy::let_unit_value,
-        clippy::needless_arbitrary_self_type,
-        clippy::no_effect_underscore_binding,
-        clippy::shadow_same,
-        clippy::type_complexity,
-        clippy::type_repetition_in_bounds,
-        clippy::used_underscore_binding
-    )]
     fn make_multiple<'async_trait, A>(
         another: Wrapper<A>,
     ) -> ::core::pin::Pin<
-        Box<
+        ::std::boxed::Box<
             dyn ::core::future::Future<
                 Output = [(T, A); N],
             > + ::core::marker::Send + 'async_trait,
@@ -52,21 +40,12 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
     where
         A: 'async_trait,
     {
-        Box::pin(async move {
-            if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
-                [(T, A); N],
-            > {
-                #[allow(unreachable_code)] return __ret;
-            }
-            let another = another;
-            let __ret: [(T, A); N] = {
-                <Self as __async_bodies_of_WithGenerics_13478430068544323400<
-                    N,
-                    T,
-                >>::make_multiple_13478430068544323400::<A>(another)
-                    .await
-            };
-            #[allow(unreachable_code)] __ret
-        })
+        ::std::boxed::Box::pin(
+            <Self as __async_bodies_of_WithGenerics_13478430068544323400<
+                N,
+                T,
+            >>::make_multiple_13478430068544323400::<A>(another),
+        )
     }
 }
+fn main() {}

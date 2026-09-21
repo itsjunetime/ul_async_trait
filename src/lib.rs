@@ -1,14 +1,20 @@
 use core::hash::{Hash, Hasher};
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::format_ident;
 use std::fmt::Write;
 use syn::{
-    AngleBracketedGenericArguments, Expr, ExprAwait, ExprCall, ExprPath, FnArg, GenericArgument,
-    GenericParam, Ident, ImplItem, ItemImpl, Pat, Path, PathArguments, PathSegment, QSelf, Stmt,
-    Type, TypePath, parse_macro_input,
+    AngleBracketedGenericArguments, AssocType, Expr, ExprCall, ExprPath, FnArg, GenericArgument,
+    GenericParam, Generics, Ident, ImplItem, ItemImpl, Lifetime, LifetimeParam, Pat, Path,
+    PathArguments, PathSegment, PredicateLifetime, PredicateType, QSelf, ReceiverKind, ReturnType,
+    Stmt, TraitBound, TraitBoundModifiers, Type, TypeParamBound, TypePath,
+    TypeTraitObject, TypeTuple, WhereClause, WherePredicate, parse_macro_input,
     punctuated::Punctuated,
-    token::{As, Await, Comma, Dot, Gt, Lt, Paren, PathSep, SelfType},
+    token::{As, Colon, Dyn, Eq, Gt, Lt, Paren, PathSep, RArrow, SelfType, Where},
+    visit_mut::VisitMut,
 };
+
+// TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
 
 fn ident_to_path(ident: Ident) -> Path {
     Path {
@@ -34,6 +40,260 @@ fn ident_to_ty_path(ident: Ident) -> Type {
         qself: None,
         path: ident_to_path(ident),
     })
+}
+
+fn fut_arg_with_output(ty: Type, async_trait_lt: &Lifetime) -> PathArguments {
+    PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+        colon2_token: Some(PathSep::default()),
+        lt_token: Lt::default(),
+        args: Punctuated::from_iter([GenericArgument::Type(Type::TraitObject(TypeTraitObject {
+            attrs: Vec::default(),
+            dyn_token: Some(Dyn::default()),
+            bounds: Punctuated::from_iter([
+                TypeParamBound::Trait(TraitBound {
+                    paren_token: None,
+                    lifetimes: None,
+                    modifiers: TraitBoundModifiers::default(),
+                    maybe: None,
+                    path: Path {
+                        leading_colon: Some(PathSep::default()),
+                        segments: Punctuated::from_iter([
+                            PathSegment {
+                                ident: format_ident!("core"),
+                                arguments: PathArguments::None,
+                            },
+                            PathSegment {
+                                ident: format_ident!("future"),
+                                arguments: PathArguments::None,
+                            },
+                            PathSegment {
+                                ident: format_ident!("Future"),
+                                arguments: PathArguments::AngleBracketed(
+                                    AngleBracketedGenericArguments {
+                                        colon2_token: None,
+                                        lt_token: Lt::default(),
+                                        args: Punctuated::from_iter([GenericArgument::AssocType(
+                                            AssocType {
+                                                ident: format_ident!("Output"),
+                                                generics: None,
+                                                eq_token: Eq::default(),
+                                                ty,
+                                            },
+                                        )]),
+                                        gt_token: Gt::default(),
+                                    },
+                                ),
+                            },
+                        ]),
+                    },
+                }),
+                TypeParamBound::Trait(TraitBound {
+                    paren_token: None,
+                    lifetimes: None,
+                    modifiers: TraitBoundModifiers::default(),
+                    maybe: None,
+                    path: Path {
+                        leading_colon: Some(PathSep::default()),
+                        segments: Punctuated::from_iter([
+                            PathSegment {
+                                ident: format_ident!("core"),
+                                arguments: PathArguments::None,
+                            },
+                            PathSegment {
+                                ident: format_ident!("marker"),
+                                arguments: PathArguments::None,
+                            },
+                            PathSegment {
+                                ident: format_ident!("Send"),
+                                arguments: PathArguments::None,
+                            },
+                        ]),
+                    },
+                }),
+                TypeParamBound::Lifetime(async_trait_lt.clone()),
+            ]),
+        }))]),
+        gt_token: Gt::default(),
+    })
+}
+
+fn lt_pred(lt_ident: Ident, async_trait_lt: &Lifetime) -> WherePredicate {
+    WherePredicate::Lifetime(PredicateLifetime {
+        attrs: Vec::new(),
+        lifetime: Lifetime {
+            apostrophe: Span::call_site(),
+            ident: lt_ident,
+        },
+        colon_token: Colon::default(),
+        bounds: Punctuated::from_iter([async_trait_lt.clone()]),
+    })
+}
+
+fn transform_sig_output(output: &mut ReturnType, async_trait_lt: &Lifetime) {
+    let inner_ty = match output.clone() {
+        ReturnType::Default => Type::Tuple(TypeTuple {
+            attrs: Vec::new(),
+            paren_token: Paren::default(),
+            elems: Punctuated::default(),
+        }),
+        ReturnType::Type(_, ret) => *ret,
+    };
+
+    *output = ReturnType::Type(
+        RArrow::default(),
+        Box::new(Type::Path(TypePath {
+            attrs: Vec::new(),
+            qself: None,
+            path: Path {
+                leading_colon: Some(PathSep::default()),
+                segments: Punctuated::from_iter([
+                    PathSegment {
+                        ident: format_ident!("core"),
+                        arguments: PathArguments::None,
+                    },
+                    PathSegment {
+                        ident: format_ident!("pin"),
+                        arguments: PathArguments::None,
+                    },
+                    PathSegment {
+                        ident: format_ident!("Pin"),
+                        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                            colon2_token: Some(PathSep::default()),
+                            lt_token: Lt::default(),
+                            args: Punctuated::from_iter([GenericArgument::Type(Type::Path(
+                                TypePath {
+                                    attrs: Vec::new(),
+                                    qself: None,
+                                    path: Path {
+                                        leading_colon: Some(PathSep::default()),
+                                        segments: Punctuated::from_iter([
+                                            PathSegment {
+                                                ident: format_ident!("std"),
+                                                arguments: PathArguments::None,
+                                            },
+                                            PathSegment {
+                                                ident: format_ident!("boxed"),
+                                                arguments: PathArguments::None,
+                                            },
+                                            PathSegment {
+                                                ident: format_ident!("Box"),
+                                                arguments: fut_arg_with_output(
+                                                    inner_ty,
+                                                    async_trait_lt,
+                                                ),
+                                            },
+                                        ]),
+                                    },
+                                },
+                            ))]),
+                            gt_token: Gt::default(),
+                        }),
+                    },
+                ]),
+            },
+        })),
+    );
+}
+
+struct LifetimeModifier<'a, 'b> {
+    found_lifetimes: usize,
+    bound_lts: Vec<Lifetime>,
+    async_trait_lt: &'a Lifetime,
+    generics: &'b mut Generics,
+}
+
+impl<'a, 'b> LifetimeModifier<'a, 'b> {
+    fn visit_maybe_lifetime_mut(&mut self, maybe: &mut Option<Lifetime>) {
+        let lt = match maybe {
+            None => {
+                let lt = Lifetime {
+                    apostrophe: Span::call_site(),
+                    ident: format_ident!("life{}", self.found_lifetimes),
+                };
+
+                self.generics
+                    .params
+                    .push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime {
+                            apostrophe: Span::call_site(),
+                            ident: lt.ident.clone(),
+                        },
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                self.found_lifetimes += 1;
+
+                maybe.insert(lt)
+            }
+            Some(lt) => {
+                if self.bound_lts.contains(lt) {
+                    return;
+                }
+
+                self.bound_lts.push(lt.clone());
+                lt
+            }
+        };
+
+        // println!("🐈 lt: {i:#?}");
+        match self.generics.where_clause.as_mut() {
+            None => {
+                self.generics.where_clause = Some(WhereClause {
+                    where_token: Where::default(),
+                    predicates: Punctuated::from_iter([lt_pred(
+                        lt.ident.clone(),
+                        self.async_trait_lt,
+                    )]),
+                })
+            }
+            Some(generics) => {
+                generics
+                    .predicates
+                    .push(lt_pred(lt.ident.clone(), self.async_trait_lt));
+            }
+        }
+    }
+}
+
+impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
+    fn visit_type_reference_mut(&mut self, i: &mut syn::TypeReference) {
+        self.visit_maybe_lifetime_mut(&mut i.lifetime);
+    }
+
+    fn visit_receiver_mut(&mut self, rec: &mut syn::Receiver) {
+        let pred = WherePredicate::Type(PredicateType {
+            attrs: Vec::new(),
+            lifetimes: None,
+            bounded_ty: Type::Path(TypePath {
+                attrs: Vec::new(),
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter([PathSegment {
+                        ident: Ident::from(SelfType::default()),
+                        arguments: PathArguments::None,
+                    }]),
+                },
+            }),
+            colon_token: Colon::default(),
+            bounds: Punctuated::from_iter([TypeParamBound::Lifetime(self.async_trait_lt.clone())]),
+        });
+
+        match &mut self.generics.where_clause {
+            Some(clause) => clause.predicates.push(pred),
+            None => {
+                self.generics.where_clause = Some(WhereClause {
+                    where_token: Where::default(),
+                    predicates: Punctuated::from_iter([pred]),
+                })
+            }
+        }
+
+        if let ReceiverKind::Reference(_, ref mut lt, _) = rec.kind {
+            self.visit_maybe_lifetime_mut(lt);
+        }
+    }
 }
 
 #[proc_macro_attribute]
@@ -97,6 +357,10 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #new_trait_impl
     };
 
+    let async_trait_lt = Lifetime {
+        apostrophe: Span::call_site(),
+        ident: format_ident!("async_trait"),
+    };
     for item in &mut input.items {
         let ImplItem::Fn(f) = item else {
             continue;
@@ -106,42 +370,8 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             continue;
         };
 
-        let fn_name = &f.sig.ident;
-        let args = &f.sig.inputs;
-
-        let mut new_args = Punctuated::new();
-        for pair in args.pairs() {
-            if !new_args.is_empty() {
-                new_args.push_punct(Comma::default());
-            }
-
-            let arg = pair.into_value();
-
-            let ident = match arg {
-                FnArg::Receiver(s) => Ident::from(s.self_token),
-                FnArg::Typed(t) => match &*t.pat {
-                    Pat::Ident(i) => i.ident.clone(),
-                    _ => return quote::quote! {
-                        compiler_error!("all types on a faster_async_trait fn must be bare identifiers; no patterns or destructuring allowed");
-                    }.into(),
-                }
-            };
-
-            let mut punct = Punctuated::new();
-            punct.push_value(PathSegment {
-                ident,
-                arguments: PathArguments::default(),
-            });
-
-            new_args.push_value(Expr::Path(ExprPath {
-                attrs: Vec::new(),
-                qself: None,
-                path: Path {
-                    leading_colon: None,
-                    segments: punct,
-                },
-            }))
-        }
+        // Reset its asyncness
+        f.sig.asyncness = None;
 
         let fn_path_args = if f.sig.generics.params.is_empty() {
             PathArguments::None
@@ -166,7 +396,99 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             })
         };
 
-        let call_expr = Expr::Call(ExprCall {
+        // And then change its return type to what async-trait does
+        transform_sig_output(&mut f.sig.output, &async_trait_lt);
+        f.sig.generics.lt_token = Some(Lt::default());
+        f.sig.generics.gt_token = Some(Gt::default());
+
+        for generic in f.sig.generics.params.pairs() {
+            let GenericParam::Type(ty) = generic.into_value() else {
+                continue;
+            };
+
+            let pred = WherePredicate::Type(PredicateType {
+                attrs: Vec::new(),
+                lifetimes: None,
+                bounded_ty: Type::Path(TypePath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: Path {
+                        leading_colon: None,
+                        segments: Punctuated::from_iter([PathSegment {
+                            ident: ty.ident.clone(),
+                            arguments: PathArguments::None,
+                        }]),
+                    },
+                }),
+                colon_token: Colon::default(),
+                bounds: Punctuated::from_iter([TypeParamBound::Lifetime(async_trait_lt.clone())]),
+            });
+
+            match &mut f.sig.generics.where_clause {
+                Some(clause) => clause.predicates.push(pred),
+                None => {
+                    f.sig.generics.where_clause = Some(WhereClause {
+                        where_token: Where::default(),
+                        predicates: Punctuated::from_iter([pred]),
+                    })
+                }
+            }
+        }
+
+        f.sig
+            .generics
+            .params
+            .push(GenericParam::Lifetime(LifetimeParam {
+                attrs: Vec::new(),
+                lifetime: async_trait_lt.clone(),
+                colon_token: None,
+                bounds: Punctuated::new(),
+            }));
+
+        let mut lifetime_modifier = LifetimeModifier {
+            found_lifetimes: 0,
+            bound_lts: Vec::new(),
+            async_trait_lt: &async_trait_lt,
+            generics: &mut f.sig.generics,
+        };
+
+        let args = &mut f.sig.inputs;
+        for pair in args.pairs_mut() {
+            let arg = pair.into_value();
+
+            lifetime_modifier.visit_fn_arg_mut(arg);
+        }
+
+        let fn_name = &f.sig.ident;
+
+        let mut new_args = Punctuated::new();
+        for pair in args.pairs() {
+            let arg = pair.into_value();
+
+            let ident = match arg {
+                FnArg::Receiver(s) => Ident::from(s.self_token),
+                FnArg::Typed(t) => match &*t.pat {
+                    Pat::Ident(i) => i.ident.clone(),
+                    _ => return quote::quote! {
+                        compiler_error!("all types on a faster_async_trait fn must be bare identifiers; no patterns or destructuring allowed");
+                    }.into(),
+                }
+            };
+
+            new_args.push(Expr::Path(ExprPath {
+                attrs: Vec::new(),
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter([PathSegment {
+                        ident,
+                        arguments: PathArguments::default(),
+                    }]),
+                },
+            }))
+        }
+
+        let call_new_trait_fn = Expr::Call(ExprCall {
             attrs: Vec::new(),
             func: Box::new(Expr::Path(ExprPath {
                 attrs: Vec::new(),
@@ -194,21 +516,45 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             paren_token: Paren::default(),
             args: new_args,
         });
-        f.block.stmts = vec![Stmt::Expr(
-            Expr::Await(ExprAwait {
+
+        let call_expr = Expr::Call(ExprCall {
+            attrs: Vec::new(),
+            func: Box::new(Expr::Path(ExprPath {
                 attrs: Vec::new(),
-                base: Box::new(call_expr),
-                dot_token: Dot::default(),
-                await_token: Await::default(),
-            }),
-            None,
-        )];
+                qself: None,
+                path: Path {
+                    leading_colon: Some(PathSep::default()),
+                    segments: Punctuated::from_iter([
+                        PathSegment {
+                            ident: format_ident!("std"),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: format_ident!("boxed"),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: format_ident!("Box"),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: format_ident!("pin"),
+                            arguments: PathArguments::None,
+                        },
+                    ]),
+                },
+            })),
+            paren_token: Paren::default(),
+            args: Punctuated::from_iter([call_new_trait_fn]),
+        });
+
+        f.block.stmts = vec![Stmt::Expr(call_expr, None)];
     }
 
     quote::quote! {
         #new_trait_ts
 
-        #[::async_trait::async_trait]
+        // #[::async_trait::async_trait]
         #input
     }
     .into()
