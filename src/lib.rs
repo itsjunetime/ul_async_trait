@@ -624,7 +624,18 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     })),
                     paren_token: Paren::default(),
                     args: Punctuated::from_iter([Expr::Async(ExprAsync {
-                        attrs: Vec::new(),
+                        attrs: vec![Attribute {
+                            pound_token: Pound::default(),
+                            style: syn::AttrStyle::Outer,
+                            bracket_token: Bracket::default(),
+                            meta: Meta::List(MetaList {
+                                path: ident_to_path(format_ident!("allow")),
+                                delimiter: syn::MacroDelimiter::Paren(Paren::default()),
+                                // this async lint doesn't fire on async functions that yield
+                                // awaitable types, but does fire on async bodies that do.
+                                tokens: quote::quote! { clippy::async_yields_async, clippy::diverging_sub_expression},
+                            }),
+                        }],
                         async_token: Async::default(),
                         capture: Some(Move::default()),
                         modifiers: BlockModifiers::default(),

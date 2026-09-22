@@ -42,19 +42,22 @@ impl __async_impl_7712602578574967941 for MyStruct {
             dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
         >,
     > {
-        ::std::boxed::Box::pin(async move {
-            if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                String,
-            > {
-                return ret;
-            }
-            let ret: String = {
-                self.s.push_str(s);
-                other_future().await;
-                self.s.clone()
-            };
-            #[allow(unreachable_code)] ret
-        })
+        ::std::boxed::Box::pin(
+            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+            async move {
+                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                    String,
+                > {
+                    return ret;
+                }
+                let ret: String = {
+                    self.s.push_str(s);
+                    other_future().await;
+                    self.s.clone()
+                };
+                #[allow(unreachable_code)] ret
+            },
+        )
     }
 }
 impl Write for MyStruct {
