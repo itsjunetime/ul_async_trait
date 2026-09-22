@@ -38,7 +38,7 @@ impl __async_impl_14124350369018977111 for ReturnsString {
                 return ret;
             }
             let ret: Result<Arc<dyn Any>, &'a str> = { Ok(Arc::new(String::new())) };
-            ret
+            #[allow(unreachable_code)] ret
         })
     }
 }

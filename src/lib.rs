@@ -7,9 +7,20 @@ use proc_macro2::Span;
 use quote::format_ident;
 use std::fmt::Write;
 use syn::{
-    AngleBracketedGenericArguments, AssocType, Block, BlockModifiers, ConstParam, Expr, ExprAsync, ExprBlock, ExprCall, ExprCast, ExprIf, ExprLet, ExprPath, ExprReturn, FnArg, FnModifiers, GenericArgument, GenericParam, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Lifetime, LifetimeParam, Local, LocalInit, LocalModifiers, Pat, PatIdent, PatPath, PatTupleStruct, PatType, Path, PathArguments, PathSegment, PredicateLifetime, PredicateType, QSelf, ReceiverKind, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifiers, TraitItem, TraitItemFn, TraitModifiers, Type, TypeParam, TypeParamBound, TypePath, TypeTraitObject, TypeTuple, WhereClause, WherePredicate, parse_macro_input, punctuated::Punctuated, token::{
-        As, Async, Brace, Colon, Comma, Dyn, Eq, For, Gt, If, Let, Lt, Move, Paren, PathSep, RArrow, Return, SelfType, Semi, Trait, Where,
-    }, visit_mut::VisitMut
+    AngleBracketedGenericArguments, AssocType, Attribute, Block, BlockModifiers, ConstParam, Expr,
+    ExprAsync, ExprBlock, ExprCall, ExprIf, ExprLet, ExprPath, ExprReturn, FnArg, FnModifiers,
+    GenericArgument, GenericParam, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Lifetime,
+    LifetimeParam, Local, LocalInit, LocalModifiers, Meta, MetaList, Pat, PatIdent, PatPath,
+    PatTupleStruct, PatType, Path, PathArguments, PathSegment, PredicateLifetime, PredicateType,
+    QSelf, ReceiverKind, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifiers, TraitItem,
+    TraitItemFn, TraitModifiers, Type, TypeParam, TypeParamBound, TypePath, TypeTraitObject,
+    TypeTuple, WhereClause, WherePredicate, parse_macro_input,
+    punctuated::Punctuated,
+    token::{
+        As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, For, Gt, If, Let, Lt, Move, Paren,
+        PathSep, Pound, RArrow, Return, SelfType, Semi, Trait, Where,
+    },
+    visit_mut::VisitMut,
 };
 
 // TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
@@ -407,12 +418,6 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let trait_suffix = hasher.finish();
 
     let async_trait_lt = lt(format_ident!("async_trait"));
-
-    // TODO: if we're adding local functions, then merge the generic arguments on the trait with the
-    // generic arguments on the function and type.
-    // On the impl block, bind clauses that only use parameters from type
-    // On the function, bind rest of clauses
-
     let new_trait_name = format_ident!("__async_impl_{trait_suffix}");
 
     let mut trait_str = String::new();
@@ -522,7 +527,9 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                                                     colon2_token: Some(PathSep::default()),
                                                     lt_token: Lt::default(),
                                                     args: Punctuated::from_iter([
-                                                        GenericArgument::Type(orig_return_ty.clone()),
+                                                        GenericArgument::Type(
+                                                            orig_return_ty.clone(),
+                                                        ),
                                                     ]),
                                                     gt_token: Gt::default(),
                                                 },
@@ -542,7 +549,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                                         attrs: Vec::new(),
                                         qself: None,
                                         path: ident_to_path(local_return_ident.clone()),
-                                    })))
+                                    }))),
                                 }),
                                 None,
                             )],
@@ -584,7 +591,16 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 let return_stmt = Stmt::Expr(
                     Expr::Path(ExprPath {
-                        attrs: Vec::new(),
+                        attrs: vec![Attribute {
+                            pound_token: Pound::default(),
+                            style: syn::AttrStyle::Outer,
+                            bracket_token: Bracket::default(),
+                            meta: Meta::List(MetaList {
+                                path: ident_to_path(format_ident!("allow")),
+                                delimiter: syn::MacroDelimiter::Paren(Paren::default()),
+                                tokens: quote::quote! { unreachable_code },
+                            }),
+                        }],
                         qself: None,
                         path: ident_to_path(local_return_ident),
                     }),

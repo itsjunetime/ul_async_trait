@@ -45,7 +45,7 @@ impl __async_impl_15866891917791490909 for MyStruct {
                 return ret;
             }
             let ret: usize = { num + 1 };
-            ret
+            #[allow(unreachable_code)] ret
         })
     }
 }

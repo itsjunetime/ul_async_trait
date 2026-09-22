@@ -53,7 +53,7 @@ impl __async_impl_7712602578574967941 for MyStruct {
                 other_future().await;
                 self.s.clone()
             };
-            ret
+            #[allow(unreachable_code)] ret
         })
     }
 }

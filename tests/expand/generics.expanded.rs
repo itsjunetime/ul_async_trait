@@ -42,7 +42,7 @@ impl<const N: usize, T> __async_impl_452534731895916786<N, T> for MyStruct<T> {
                 return ret;
             }
             let ret: [(T, A); N] = { another.1 };
-            ret
+            #[allow(unreachable_code)] ret
         })
     }
 }
