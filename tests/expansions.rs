@@ -1,4 +1,7 @@
-use std::{ffi::OsStr, process::{Command, ExitStatus}};
+use std::{
+    ffi::OsStr,
+    process::{Command, ExitStatus},
+};
 
 #[test]
 fn all_expand() {
@@ -11,8 +14,11 @@ fn all_expand() {
 fn all_compile() {
     for item in std::fs::read_dir("tests/expand/").unwrap() {
         let path = item.unwrap().path();
-        if path.file_name().and_then(OsStr::to_str).is_some_and(|n| n.ends_with(".expanded.rs")) {
-
+        if path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|n| n.ends_with(".expanded.rs"))
+        {
             let output = Command::new("cargo")
                 .args(["+nightly", "-Zscript"])
                 .arg(&path)
@@ -32,3 +38,5 @@ fn all_compile() {
         }
     }
 }
+
+// TODO: Add a test that somehow verifies that we keep our much-faster-compile-times promise

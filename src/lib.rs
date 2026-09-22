@@ -15,8 +15,6 @@ use syn::{
 };
 
 // TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
-// TODO: It fails associated-type-inference when an associated type is a parameter. Gotta transform
-// that in the inherent method bodies
 
 fn ident_to_path(ident: Ident) -> Path {
     Path {
@@ -454,6 +452,16 @@ impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
     }
 }
 
+fn make_inputs_not_mut_pats(args: &mut Punctuated<FnArg, Comma>) {
+    for input in args {
+        if let FnArg::Typed(pat_ty) = input
+            && let Pat::Ident(ident) = &mut *pat_ty.pat
+        {
+            ident.mutability = None;
+        }
+    }
+}
+
 #[proc_macro_attribute]
 pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemImpl);
@@ -528,6 +536,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             // Reset its asyncness
             f.sig.asyncness = None;
+            make_inputs_not_mut_pats(&mut f.sig.inputs);
 
             let call_new_trait_fn = match call_self_fn_with_piped_args(
                 new_unboxed_fn_name.sig.ident.clone(),
@@ -602,6 +611,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         // And then change its return type to what async-trait does
         transform_sig_output(&mut f.sig.output, &async_trait_lt);
         add_lifetime_bounds(&mut f.sig, &async_trait_lt);
+        make_inputs_not_mut_pats(&mut f.sig.inputs);
 
         let fn_name = &f.sig.ident;
 
