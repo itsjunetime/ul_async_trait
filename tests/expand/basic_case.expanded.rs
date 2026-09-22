@@ -19,11 +19,18 @@ trait MyTrait {
         Self: 'async_trait;
 }
 struct MyStruct;
-impl MyStruct {
-    async fn my_fn_14302471173908516815(&self, num: usize) -> usize {
-        num + 1
-    }
-    fn my_fn_14302471173908516815_boxed<'a>(
+trait __async_impl_15866891917791490909 {
+    fn my_fn_15866891917791490909<'a>(
+        &'a self,
+        num: usize,
+    ) -> ::core::pin::Pin<
+        ::std::boxed::Box<
+            dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
+        >,
+    >;
+}
+impl __async_impl_15866891917791490909 for MyStruct {
+    fn my_fn_15866891917791490909<'a>(
         &'a self,
         num: usize,
     ) -> ::core::pin::Pin<
@@ -31,7 +38,15 @@ impl MyStruct {
             dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
         >,
     > {
-        ::std::boxed::Box::pin(Self::my_fn_14302471173908516815(self, num))
+        ::std::boxed::Box::pin(async move {
+            if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                usize,
+            > {
+                return ret;
+            }
+            let ret: usize = { num + 1 };
+            ret
+        })
     }
 }
 impl MyTrait for MyStruct {
@@ -49,7 +64,10 @@ impl MyTrait for MyStruct {
         Self: 'async_trait,
         'life0: 'async_trait,
     {
-        Self::my_fn_14302471173908516815_boxed(self, num)
+        <Self as __async_impl_15866891917791490909>::my_fn_15866891917791490909(
+            self,
+            num,
+        )
     }
 }
 struct MyStruct2;

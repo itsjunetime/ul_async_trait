@@ -18,18 +18,32 @@ trait WithGenerics<const N: usize, T> {
         A: 'async_trait;
 }
 struct MyStruct<T>(core::marker::PhantomData<T>);
-impl<const N: usize, T> MyStruct<T> {
-    async fn make_multiple_13478430068544323400<A>(another: Wrapper<A>) -> [(T, A); N] {
-        another.1
-    }
-    fn make_multiple_13478430068544323400_boxed<'a, A>(
+trait __async_impl_452534731895916786<const N: usize, T> {
+    fn make_multiple_452534731895916786<'a, A>(
+        another: Wrapper<A>,
+    ) -> ::core::pin::Pin<
+        ::std::boxed::Box<
+            dyn ::core::future::Future<Output = [(T, A); N]> + ::core::marker::Send + 'a,
+        >,
+    >;
+}
+impl<const N: usize, T> __async_impl_452534731895916786<N, T> for MyStruct<T> {
+    fn make_multiple_452534731895916786<'a, A>(
         another: Wrapper<A>,
     ) -> ::core::pin::Pin<
         ::std::boxed::Box<
             dyn ::core::future::Future<Output = [(T, A); N]> + ::core::marker::Send + 'a,
         >,
     > {
-        ::std::boxed::Box::pin(Self::make_multiple_13478430068544323400(another))
+        ::std::boxed::Box::pin(async move {
+            if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                [(T, A); N],
+            > {
+                return ret;
+            }
+            let ret: [(T, A); N] = { another.1 };
+            ret
+        })
     }
 }
 impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
@@ -45,7 +59,10 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
     where
         A: 'async_trait,
     {
-        Self::make_multiple_13478430068544323400_boxed::<A>(another)
+        <Self as __async_impl_452534731895916786<
+            N,
+            T,
+        >>::make_multiple_452534731895916786::<A>(another)
     }
 }
 fn main() {}

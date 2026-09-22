@@ -23,13 +23,18 @@ trait Write {
 struct MyStruct {
     s: String,
 }
-impl MyStruct {
-    async fn write_str_14302471173908516815(&mut self, s: &str) -> String {
-        self.s.push_str(s);
-        other_future().await;
-        self.s.clone()
-    }
-    fn write_str_14302471173908516815_boxed<'a>(
+trait __async_impl_7712602578574967941 {
+    fn write_str_7712602578574967941<'a>(
+        &'a mut self,
+        s: &'a str,
+    ) -> ::core::pin::Pin<
+        ::std::boxed::Box<
+            dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
+        >,
+    >;
+}
+impl __async_impl_7712602578574967941 for MyStruct {
+    fn write_str_7712602578574967941<'a>(
         &'a mut self,
         s: &'a str,
     ) -> ::core::pin::Pin<
@@ -37,7 +42,19 @@ impl MyStruct {
             dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
         >,
     > {
-        ::std::boxed::Box::pin(Self::write_str_14302471173908516815(self, s))
+        ::std::boxed::Box::pin(async move {
+            if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                String,
+            > {
+                return ret;
+            }
+            let ret: String = {
+                self.s.push_str(s);
+                other_future().await;
+                self.s.clone()
+            };
+            ret
+        })
     }
 }
 impl Write for MyStruct {
@@ -56,7 +73,10 @@ impl Write for MyStruct {
         'life0: 'async_trait,
         'life1: 'async_trait,
     {
-        Self::write_str_14302471173908516815_boxed(self, s)
+        <Self as __async_impl_7712602578574967941>::write_str_7712602578574967941(
+            self,
+            s,
+        )
     }
 }
 struct MyStructCorrect {
