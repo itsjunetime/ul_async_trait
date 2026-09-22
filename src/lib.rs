@@ -635,7 +635,9 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     })]),
                 });
 
-                new_async_sigs.push(f.sig.clone());
+                let mut new_async_sig = f.sig.clone();
+                make_inputs_not_mut_pats(&mut new_async_sig.inputs);
+                new_async_sigs.push(new_async_sig);
 
                 f.block.stmts = vec![Stmt::Expr(call_expr, None)];
                 true
