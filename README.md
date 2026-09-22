@@ -15,4 +15,8 @@ I don't fully understand why these changes make it easier for the compiler to wo
 
 If you'd like to see what the generated code looks like, feel free to take a look at the `*.expanded.rs` files in `tests/expand`.
 
+### Contributing
+
+Please contribute! Note, however, that no AI-generated or AI-assisted or AI-viewed or AI-anything'ed code is allowed in this repo.
+
 <a href="https://samvieten.itch.io/no-ai"><img src="https://img.itch.zone/aW1nLzE3NDE1OTczLnBuZw==/original/pEKFnT.png" width="80px" height="64px"></img></a>
