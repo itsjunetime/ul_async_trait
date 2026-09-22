@@ -5,7 +5,7 @@ trait MyTrait {
 
 struct MyStruct;
 
-#[faster_async_trait::async_trait]
+#[ul_async_trait::async_trait]
 impl MyTrait for MyStruct {
     async fn my_fn(&self, num: usize) -> usize {
         num + 1

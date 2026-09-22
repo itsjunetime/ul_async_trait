@@ -9,7 +9,7 @@ struct MyStruct {
     s: String
 }
 
-#[faster_async_trait::async_trait]
+#[ul_async_trait::async_trait]
 impl Write for MyStruct {
     async fn write_str(&mut self, s: &str) -> String {
         self.s.push_str(s);

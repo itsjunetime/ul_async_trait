@@ -19,25 +19,19 @@ trait MyTrait {
         Self: 'async_trait;
 }
 struct MyStruct;
-trait __async_bodies_of_MyTrait_14302471173908516815 {
-    async fn my_fn_14302471173908516815<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
-    ) -> usize
-    where
-        Self: 'async_trait,
-        'life0: 'async_trait;
-}
-impl __async_bodies_of_MyTrait_14302471173908516815 for MyStruct {
-    async fn my_fn_14302471173908516815<'life0, 'async_trait>(
-        &'life0 self,
-        num: usize,
-    ) -> usize
-    where
-        Self: 'async_trait,
-        'life0: 'async_trait,
-    {
+impl MyStruct {
+    async fn my_fn_14302471173908516815(&self, num: usize) -> usize {
         num + 1
+    }
+    fn my_fn_14302471173908516815_boxed<'a>(
+        &'a self,
+        num: usize,
+    ) -> ::core::pin::Pin<
+        ::std::boxed::Box<
+            dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
+        >,
+    > {
+        ::std::boxed::Box::pin(Self::my_fn_14302471173908516815(self, num))
     }
 }
 impl MyTrait for MyStruct {
@@ -55,12 +49,7 @@ impl MyTrait for MyStruct {
         Self: 'async_trait,
         'life0: 'async_trait,
     {
-        ::std::boxed::Box::pin(
-            <Self as __async_bodies_of_MyTrait_14302471173908516815>::my_fn_14302471173908516815::<
-                'life0,
-                'async_trait,
-            >(self, num),
-        )
+        Self::my_fn_14302471173908516815_boxed(self, num)
     }
 }
 struct MyStruct2;

@@ -23,29 +23,21 @@ trait Write {
 struct MyStruct {
     s: String,
 }
-trait __async_bodies_of_Write_14302471173908516815 {
-    async fn write_str_14302471173908516815<'life0, 'life1, 'async_trait>(
-        &'life0 mut self,
-        s: &'life1 str,
-    ) -> String
-    where
-        Self: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait;
-}
-impl __async_bodies_of_Write_14302471173908516815 for MyStruct {
-    async fn write_str_14302471173908516815<'life0, 'life1, 'async_trait>(
-        &'life0 mut self,
-        s: &'life1 str,
-    ) -> String
-    where
-        Self: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-    {
+impl MyStruct {
+    async fn write_str_14302471173908516815(&mut self, s: &str) -> String {
         self.s.push_str(s);
         other_future().await;
         self.s.clone()
+    }
+    fn write_str_14302471173908516815_boxed<'a>(
+        &'a mut self,
+        s: &'a str,
+    ) -> ::core::pin::Pin<
+        ::std::boxed::Box<
+            dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
+        >,
+    > {
+        ::std::boxed::Box::pin(Self::write_str_14302471173908516815(self, s))
     }
 }
 impl Write for MyStruct {
@@ -64,13 +56,7 @@ impl Write for MyStruct {
         'life0: 'async_trait,
         'life1: 'async_trait,
     {
-        ::std::boxed::Box::pin(
-            <Self as __async_bodies_of_Write_14302471173908516815>::write_str_14302471173908516815::<
-                'life0,
-                'life1,
-                'async_trait,
-            >(self, s),
-        )
+        Self::write_str_14302471173908516815_boxed(self, s)
     }
 }
 struct MyStructCorrect {
