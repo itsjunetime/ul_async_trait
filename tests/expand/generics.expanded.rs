@@ -1,4 +1,4 @@
-struct Wrapper<A>(core::marker::PhantomData<A>);
+struct Wrapper<A>(core::marker::PhantomData<A>, !);
 trait WithGenerics<const N: usize, T> {
     #[allow(
         elided_named_lifetimes,
@@ -20,7 +20,7 @@ trait WithGenerics<const N: usize, T> {
 struct MyStruct<T>(core::marker::PhantomData<T>);
 impl<const N: usize, T> MyStruct<T> {
     async fn make_multiple_13478430068544323400<A>(another: Wrapper<A>) -> [(T, A); N] {
-        ::core::panicking::panic("not yet implemented")
+        another.1
     }
     fn make_multiple_13478430068544323400_boxed<'a, A>(
         another: Wrapper<A>,
