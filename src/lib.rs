@@ -1,4 +1,7 @@
-use core::hash::{Hash, Hasher};
+use core::{
+    fmt::Display,
+    hash::{Hash, Hasher},
+};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::format_ident;
@@ -16,13 +19,17 @@ use syn::{
 
 // TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
 
+fn path_seg(p: impl Display) -> PathSegment {
+    PathSegment {
+        ident: format_ident!("{p}"),
+        arguments: PathArguments::None,
+    }
+}
+
 fn ident_to_path(ident: Ident) -> Path {
     Path {
         leading_colon: None,
-        segments: Punctuated::from_iter([PathSegment {
-            ident,
-            arguments: PathArguments::None,
-        }]),
+        segments: Punctuated::from_iter([path_seg(ident)]),
     }
 }
 
@@ -58,14 +65,8 @@ fn fut_arg_with_output(ty: Type, async_trait_lt: &Lifetime) -> PathArguments {
                     path: Path {
                         leading_colon: Some(PathSep::default()),
                         segments: Punctuated::from_iter([
-                            PathSegment {
-                                ident: format_ident!("core"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("future"),
-                                arguments: PathArguments::None,
-                            },
+                            path_seg("core"),
+                            path_seg("future"),
                             PathSegment {
                                 ident: format_ident!("Future"),
                                 arguments: PathArguments::AngleBracketed(
@@ -95,18 +96,9 @@ fn fut_arg_with_output(ty: Type, async_trait_lt: &Lifetime) -> PathArguments {
                     path: Path {
                         leading_colon: Some(PathSep::default()),
                         segments: Punctuated::from_iter([
-                            PathSegment {
-                                ident: format_ident!("core"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("marker"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("Send"),
-                                arguments: PathArguments::None,
-                            },
+                            path_seg("core"),
+                            path_seg("marker"),
+                            path_seg("Send"),
                         ]),
                     },
                 }),
@@ -147,14 +139,8 @@ fn transform_sig_output(output: &mut ReturnType, async_trait_lt: &Lifetime) {
             path: Path {
                 leading_colon: Some(PathSep::default()),
                 segments: Punctuated::from_iter([
-                    PathSegment {
-                        ident: format_ident!("core"),
-                        arguments: PathArguments::None,
-                    },
-                    PathSegment {
-                        ident: format_ident!("pin"),
-                        arguments: PathArguments::None,
-                    },
+                    path_seg("core"),
+                    path_seg("pin"),
                     PathSegment {
                         ident: format_ident!("Pin"),
                         arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
@@ -167,14 +153,8 @@ fn transform_sig_output(output: &mut ReturnType, async_trait_lt: &Lifetime) {
                                     path: Path {
                                         leading_colon: Some(PathSep::default()),
                                         segments: Punctuated::from_iter([
-                                            PathSegment {
-                                                ident: format_ident!("std"),
-                                                arguments: PathArguments::None,
-                                            },
-                                            PathSegment {
-                                                ident: format_ident!("boxed"),
-                                                arguments: PathArguments::None,
-                                            },
+                                            path_seg("std"),
+                                            path_seg("boxed"),
                                             PathSegment {
                                                 ident: format_ident!("Box"),
                                                 arguments: fut_arg_with_output(
@@ -212,10 +192,7 @@ fn add_lifetime_bounds(sig: &mut Signature, async_trait_lt: &Lifetime) {
                 qself: None,
                 path: Path {
                     leading_colon: None,
-                    segments: Punctuated::from_iter([PathSegment {
-                        ident: ty.ident.clone(),
-                        arguments: PathArguments::None,
-                    }]),
+                    segments: Punctuated::from_iter([path_seg(&ty.ident)]),
                 },
             }),
             colon_token: Colon::default(),
@@ -297,10 +274,7 @@ fn call_self_fn_with_piped_args(
             qself: None,
             path: Path {
                 leading_colon: None,
-                segments: Punctuated::from_iter([PathSegment {
-                    ident,
-                    arguments: PathArguments::default(),
-                }]),
+                segments: Punctuated::from_iter([path_seg(ident)]),
             },
         }))
     }
@@ -313,10 +287,7 @@ fn call_self_fn_with_piped_args(
             path: Path {
                 leading_colon: None,
                 segments: Punctuated::from_iter([
-                    PathSegment {
-                        ident: Ident::from(SelfType::default()),
-                        arguments: PathArguments::None,
-                    },
+                    path_seg(Ident::from(SelfType::default())),
                     PathSegment {
                         ident: fn_name,
                         arguments: fn_path_args,
@@ -426,10 +397,7 @@ impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
                 qself: None,
                 path: Path {
                     leading_colon: None,
-                    segments: Punctuated::from_iter([PathSegment {
-                        ident: Ident::from(SelfType::default()),
-                        arguments: PathArguments::None,
-                    }]),
+                    segments: Punctuated::from_iter([path_seg(Ident::from(SelfType::default()))]),
                 },
             }),
             colon_token: Colon::default(),
@@ -555,22 +523,10 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     path: Path {
                         leading_colon: Some(PathSep::default()),
                         segments: Punctuated::from_iter([
-                            PathSegment {
-                                ident: format_ident!("std"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("boxed"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("Box"),
-                                arguments: PathArguments::None,
-                            },
-                            PathSegment {
-                                ident: format_ident!("pin"),
-                                arguments: PathArguments::None,
-                            },
+                            path_seg("std"),
+                            path_seg("boxed"),
+                            path_seg("Box"),
+                            path_seg("pin"),
                         ]),
                     },
                 })),
