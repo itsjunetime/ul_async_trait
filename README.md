@@ -7,4 +7,4 @@ Use this instead of `#[async_trait::async_trait]` for significantly compile time
 
 Each one of these restrictions might be able to be lifted with some careful testing and validation to ensure that we don't lose the faster compile times of this crate, but for now they are what you must adhere to to obtain the faster compile times.
 
-<a href="https://samvieten.itch.io/no-ai" width="80px" height="20px"></a>
+<img src="https://img.itch.zone/aW1nLzE3NDE1OTczLnBuZw==/original/pEKFnT.png" width="80px" height="64px"></img>
