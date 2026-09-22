@@ -26,6 +26,13 @@ fn path_seg(p: impl Display) -> PathSegment {
     }
 }
 
+fn lt(ident: Ident) -> Lifetime {
+    Lifetime {
+        ident,
+        apostrophe: Span::call_site(),
+    }
+}
+
 fn ident_to_path(ident: Ident) -> Path {
     Path {
         leading_colon: None,
@@ -112,10 +119,7 @@ fn fut_arg_with_output(ty: Type, async_trait_lt: &Lifetime) -> PathArguments {
 fn lt_pred(lt_ident: Ident, async_trait_lt: &Lifetime) -> WherePredicate {
     WherePredicate::Lifetime(PredicateLifetime {
         attrs: Vec::new(),
-        lifetime: Lifetime {
-            apostrophe: Span::call_site(),
-            ident: lt_ident,
-        },
+        lifetime: lt(lt_ident),
         colon_token: Colon::default(),
         bounds: Punctuated::from_iter([async_trait_lt.clone()]),
     })
@@ -303,11 +307,8 @@ fn call_self_fn_with_piped_args(
 struct LifetimeUnifier;
 
 impl LifetimeUnifier {
-    fn change_lifetime_to_a(&mut self, lt: &mut Option<Lifetime>) {
-        *lt = Some(Lifetime {
-            apostrophe: Span::call_site(),
-            ident: format_ident!("a"),
-        })
+    fn change_lifetime_to_a(&mut self, l: &mut Option<Lifetime>) {
+        *l = Some(lt(format_ident!("a")));
     }
 }
 
@@ -334,10 +335,7 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
     fn visit_maybe_lifetime_mut(&mut self, maybe: &mut Option<Lifetime>) {
         let lt = match maybe {
             None => {
-                let lt = Lifetime {
-                    apostrophe: Span::call_site(),
-                    ident: format_ident!("life{}", self.found_lifetimes),
-                };
+                let l = lt(format_ident!("life{}", self.found_lifetimes));
 
                 self.generics
                     .params
@@ -345,14 +343,14 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
                         attrs: Vec::new(),
                         lifetime: Lifetime {
                             apostrophe: Span::call_site(),
-                            ident: lt.ident.clone(),
+                            ident: l.ident.clone(),
                         },
                         colon_token: None,
                         bounds: Punctuated::new(),
                     }));
                 self.found_lifetimes += 1;
 
-                maybe.insert(lt)
+                maybe.insert(l)
             }
             Some(lt) => {
                 if self.bound_lts.contains(lt) {
@@ -444,10 +442,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     input.self_ty.hash(&mut hasher);
     let trait_suffix = hasher.finish();
 
-    let async_trait_lt = Lifetime {
-        apostrophe: Span::call_site(),
-        ident: format_ident!("async_trait"),
-    };
+    let async_trait_lt = lt(format_ident!("async_trait"));
 
     // TODO: if we're adding local functions, then merge the generic arguments on the trait with the
     // generic arguments on the function and type.
@@ -483,10 +478,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let mut f = f.clone();
 
-            let fut_lifetime = Lifetime {
-                apostrophe: Span::call_site(),
-                ident: format_ident!("a"),
-            };
+            let fut_lifetime = lt(format_ident!("a"));
             transform_sig_output(&mut f.sig.output, &fut_lifetime);
 
             LifetimeUnifier.visit_signature_mut(&mut f.sig);
