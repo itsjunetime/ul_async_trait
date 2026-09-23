@@ -1,8 +1,10 @@
 # Unified Lifetime Async Trait
 
-Use this instead of `#[async_trait::async_trait]` for significantly faster compile times, but it comes with one restriction: the implemented trait must have no named lifetimes.
+Use this instead of `#[async_trait::async_trait]` for significantly faster compile times, but it comes with two restrictions:
+1. The implemented trait must have no named lifetimes.
+2. There must be no uses of `self` or `Self` within a macro in the body of an async function (this was previously not necessary, that previous iteration was significantly detrimental to monomorphization cost).
 
-This restriction might be able to be lifted with some careful testing and validation to ensure that we don't lose the faster compile times of this crate, but for now it is what you must adhere to to obtain the faster compile times.
+These restrictions might be able to be lifted with some careful testing and validation to ensure that we don't lose the faster compile times of this crate, but for now they are what you must adhere to to obtain the faster compile times.
 
 ### Wanna know more?
 
