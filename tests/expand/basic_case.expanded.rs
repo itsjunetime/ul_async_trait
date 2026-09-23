@@ -19,39 +19,6 @@ trait MyTrait {
         Self: 'async_trait;
 }
 struct MyStruct;
-trait __async_impl_15866891917791490909: MyTrait {
-    fn my_fn_15866891917791490909<'a>(
-        &'a self,
-        num: usize,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
-        >,
-    >;
-}
-impl __async_impl_15866891917791490909 for MyStruct {
-    fn my_fn_15866891917791490909<'a>(
-        &'a self,
-        num: usize,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    usize,
-                > {
-                    return ret;
-                }
-                let ret: usize = { num + 1 };
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-}
 impl MyTrait for MyStruct {
     fn my_fn<'life0, 'async_trait>(
         &'life0 self,
@@ -67,10 +34,31 @@ impl MyTrait for MyStruct {
         Self: 'async_trait,
         'life0: 'async_trait,
     {
-        <Self as __async_impl_15866891917791490909>::my_fn_15866891917791490909(
-            self,
-            num,
-        )
+        fn inner<'a>(
+            slf: &'a MyStruct,
+            num: usize,
+        ) -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            MyStruct: MyTrait,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        usize,
+                    > {
+                        return ret;
+                    }
+                    let ret: usize = { num + 1 };
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner(self, num)
     }
 }
 struct MyStruct2;

@@ -30,60 +30,6 @@ trait UsesAssocTypes {
         Self: 'async_trait;
 }
 struct AssocIsStaticStr;
-trait __async_impl_11659263615587977636: UsesAssocTypes {
-    fn takes_ty_11659263615587977636<'a>(
-        _a: Self::Assoc,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'a,
-        >,
-    >;
-    fn gives_ty_11659263615587977636<'a>() -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = Self::Assoc> + ::core::marker::Send + 'a,
-        >,
-    >;
-}
-impl __async_impl_11659263615587977636 for AssocIsStaticStr {
-    fn takes_ty_11659263615587977636<'a>(
-        _a: Self::Assoc,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    (),
-                > {
-                    return ret;
-                }
-                let ret: () = {};
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-    fn gives_ty_11659263615587977636<'a>() -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = Self::Assoc> + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    Self::Assoc,
-                > {
-                    return ret;
-                }
-                let ret: Self::Assoc = { "" };
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-}
 impl UsesAssocTypes for AssocIsStaticStr {
     type Assoc = &'static str;
     fn takes_ty<'async_trait>(
@@ -93,7 +39,30 @@ impl UsesAssocTypes for AssocIsStaticStr {
             dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'async_trait,
         >,
     > {
-        <Self as __async_impl_11659263615587977636>::takes_ty_11659263615587977636(_a)
+        fn inner<'a>(
+            _a: <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+        ) -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            AssocIsStaticStr: UsesAssocTypes,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        (),
+                    > {
+                        return ret;
+                    }
+                    let ret: () = {};
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner(_a)
     }
     fn gives_ty<'async_trait>() -> ::core::pin::Pin<
         ::std::boxed::Box<
@@ -102,7 +71,30 @@ impl UsesAssocTypes for AssocIsStaticStr {
             > + ::core::marker::Send + 'async_trait,
         >,
     > {
-        <Self as __async_impl_11659263615587977636>::gives_ty_11659263615587977636()
+        fn inner<'a>() -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<
+                    Output = <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+                > + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            AssocIsStaticStr: UsesAssocTypes,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+                    > {
+                        return ret;
+                    }
+                    let ret: <AssocIsStaticStr as UsesAssocTypes>::Assoc = { "" };
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner()
     }
 }
 struct AssocIsUsize;

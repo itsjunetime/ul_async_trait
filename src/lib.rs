@@ -1,29 +1,27 @@
-use core::{
-    fmt::Display,
-    hash::{Hash, Hasher},
-};
+use core::fmt::Display;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::format_ident;
-use std::fmt::Write;
 use syn::{
     AngleBracketedGenericArguments, AssocType, Attribute, Block, BlockModifiers, ConstParam, Expr,
     ExprAsync, ExprBlock, ExprCall, ExprIf, ExprLet, ExprPath, ExprReturn, FnArg, FnModifiers,
-    GenericArgument, GenericParam, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Lifetime,
-    LifetimeParam, Local, LocalInit, LocalModifiers, Meta, MetaList, Pat, PatIdent, PatPath,
-    PatTupleStruct, PatType, Path, PathArguments, PathSegment, PredicateLifetime, PredicateType,
-    QSelf, ReceiverKind, ReturnType, Signature, Stmt, TraitBound, TraitBoundModifiers, TraitItem,
-    TraitItemFn, TraitModifiers, Type, TypeParam, TypeParamBound, TypePath, TypeTraitObject,
-    TypeTuple, WhereClause, WherePredicate, parse_macro_input,
+    GenericArgument, GenericParam, Generics, Ident, ImplItem, ImplItemConst, ImplItemFn,
+    ImplItemType, Item, ItemFn, ItemImpl, Lifetime, LifetimeParam, Local, LocalInit,
+    LocalModifiers, Meta, MetaList, Pat, PatIdent, PatPath, PatTupleStruct, PatType, Path,
+    PathArguments, PathSegment, PredicateLifetime, PredicateType, QSelf, ReceiverKind, ReturnType,
+    Signature, Stmt, TraitBound, TraitBoundModifiers, Type, TypeParam, TypeParamBound, TypePath,
+    TypeReference, TypeTraitObject, TypeTuple, WhereClause, WherePredicate, parse_macro_input,
     punctuated::Punctuated,
     token::{
-        As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, For, Gt, If, Let, Lt, Move, Paren,
-        PathSep, Pound, RArrow, Return, SelfType, Semi, Trait, Where,
+        As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, Fn, Gt, If, Let, Lt, Move, Paren,
+        PathSep, Pound, RArrow, Return, SelfType, SelfValue, Semi, Where,
     },
     visit_mut::VisitMut,
 };
 
 // TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
+// TODO: If we can resolve associated types to their concrete types instead of to their
+// fully-qualified type paths, that would be good.
 
 fn path_seg(p: impl Display) -> PathSegment {
     PathSegment {
@@ -44,14 +42,6 @@ fn ident_to_path(ident: Ident) -> Path {
         leading_colon: None,
         segments: Punctuated::from_iter([path_seg(ident)]),
     }
-}
-
-fn ident_to_expr_path(ident: Ident) -> Expr {
-    Expr::Path(ExprPath {
-        attrs: Vec::new(),
-        qself: None,
-        path: ident_to_path(ident),
-    })
 }
 
 fn ident_to_ty_path(ident: Ident) -> Type {
@@ -241,23 +231,12 @@ fn add_lifetime_bounds(sig: &mut Signature, async_trait_lt: &Lifetime) {
         }));
 }
 
-fn generic_params_to_args(params: &Punctuated<GenericParam, Comma>) -> PathArguments {
-    if params.is_empty() {
-        PathArguments::None
-    } else {
-        PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-            colon2_token: Some(PathSep::default()),
-            lt_token: Lt::default(),
-            args: Punctuated::from_iter(params.pairs().map(|p| match p.into_value() {
-                GenericParam::Lifetime(lt) => GenericArgument::Lifetime(lt.lifetime.clone()),
-                GenericParam::Type(t) => GenericArgument::Type(ident_to_ty_path(t.ident.clone())),
-                GenericParam::Const(c) => {
-                    GenericArgument::Const(ident_to_expr_path(c.ident.clone()))
-                }
-            })),
-            gt_token: Gt::default(),
-        })
-    }
+fn path_is_self_value(p: &Path) -> bool {
+    p.leading_colon.is_none()
+        && p.segments
+            .last()
+            .is_some_and(|l| l.ident == Ident::from(SelfValue::default()))
+        && p.segments.len() == 1
 }
 
 struct LifetimeUnifier;
@@ -384,6 +363,142 @@ fn make_inputs_not_mut_pats(args: &mut Punctuated<FnArg, Comma>) {
     }
 }
 
+struct SelfFixerUpper<'a> {
+    change_self_to_ty: &'a Type,
+    trait_items: &'a [ImplItem],
+    trait_name: &'a Path,
+}
+
+impl SelfFixerUpper<'_> {
+    fn ident_is_trait_item(&self, given_ident: &Ident) -> bool {
+        for item in self.trait_items {
+            match item {
+                ImplItem::Const(ImplItemConst { ident, .. })
+                | ImplItem::Type(ImplItemType { ident, .. })
+                    if ident == given_ident =>
+                {
+                    return true;
+                }
+                ImplItem::Fn(ImplItemFn { sig, .. }) if sig.ident == *given_ident => return true,
+                _ => (),
+            }
+        }
+
+        false
+    }
+}
+
+impl VisitMut for SelfFixerUpper<'_> {
+    // Need to transform:
+    // 1. `Self::Assoc` to `<Ty>::Assoc`
+    // 2. `<Self as Thing>::Assoc` to `<Ty as Thing>::Assoc` (No brackets)
+    // 3. `Self` to `Ty` (no brackets)
+    //
+    // So. if the type is path of length 1 and only `Self`, then we gotta just replace the type
+    // entirely. otherwise, replace qself.
+    fn visit_type_mut(&mut self, i: &mut syn::Type) {
+        if let Type::Path(TypePath {
+            qself: qself @ None,
+            path,
+            ..
+        }) = i
+            && path.leading_colon.is_none()
+            && path
+                .segments
+                .first()
+                .is_some_and(|seg| seg.ident == Ident::from(SelfType::default()))
+        {
+            if path.segments.len() == 1 {
+                *i = self.change_self_to_ty.clone();
+            } else {
+                let mut new_qself = QSelf {
+                    lt_token: Lt::default(),
+                    ty: Box::new(self.change_self_to_ty.clone()),
+                    position: 0,
+                    as_token: None,
+                    gt_token: Gt::default(),
+                };
+
+                // Even if there's another trait in-scope which has the same associated type, if
+                // it's in the body of this trait fn, it uses the correct one without asking, so we
+                // can comfortably replace them here. See:
+                // https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=0ab59d006a37db90ce97ee2f7bdca781
+                let new_path = if path
+                    .segments
+                    .get(1)
+                    .is_some_and(|f| self.ident_is_trait_item(&f.ident))
+                {
+                    new_qself.as_token = Some(As::default());
+                    new_qself.position = self.trait_name.segments.len();
+                    Path {
+                        segments: Punctuated::from_iter(
+                            self.trait_name
+                                .segments
+                                .iter()
+                                .chain(path.segments.iter().skip(1))
+                                .cloned(),
+                        ),
+                        leading_colon: self.trait_name.leading_colon,
+                    }
+                } else {
+                    Path {
+                        segments: path.segments.iter().skip(1).cloned().collect(),
+                        leading_colon: Some(PathSep::default()),
+                    }
+                };
+
+                *qself = Some(new_qself);
+                *path = new_path;
+            }
+        }
+
+        syn::visit_mut::visit_type_mut(self, i);
+    }
+
+    fn visit_fn_arg_mut(&mut self, i: &mut syn::FnArg) {
+        if let FnArg::Receiver(rcv) = i {
+            let replace_ty_with = match &rcv.kind {
+                ReceiverKind::Reference(and_token, lt, mut_tok) => {
+                    let change_to_ty = Box::new(self.change_self_to_ty.clone());
+                    Type::Reference(TypeReference {
+                        attrs: Vec::new(),
+                        and_token: *and_token,
+                        lifetime: lt.clone(),
+                        mutability: *mut_tok,
+                        elem: change_to_ty,
+                    })
+                }
+                ReceiverKind::Typed(_, ty) => {
+                    let mut new_ty = (**ty).clone();
+                    self.visit_type_mut(&mut new_ty);
+                    new_ty
+                }
+                ReceiverKind::Value | _ => self.change_self_to_ty.clone(),
+            };
+            *i = FnArg::Typed(PatType {
+                attrs: rcv.attrs.clone(),
+                pat: Box::new(Pat::Ident(PatIdent {
+                    attrs: Vec::new(),
+                    by_ref: None,
+                    mutability: None,
+                    ident: format_ident!("slf"),
+                    subpat: None,
+                })),
+                colon_token: Colon::default(),
+                ty: Box::new(replace_ty_with),
+            })
+        }
+        syn::visit_mut::visit_fn_arg_mut(self, i);
+    }
+
+    fn visit_expr_path_mut(&mut self, i: &mut syn::ExprPath) {
+        if path_is_self_value(&i.path) {
+            i.path.segments = Punctuated::from_iter([path_seg("slf")])
+        }
+        syn::visit_mut::visit_expr_path_mut(self, i);
+    }
+}
+
 #[proc_macro_attribute]
 pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemImpl);
@@ -394,341 +509,11 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }.into();
     };
 
-    let all_orig_trait_args = trait_name
-        .segments
-        .iter()
-        .fold(Vec::new(), |mut args, seg| {
-            match &seg.arguments {
-                PathArguments::None => (),
-                PathArguments::AngleBracketed(bracketed) => args.extend(bracketed.args.clone()),
-                PathArguments::Parenthesized(parenthesized) => args.extend(
-                    parenthesized
-                        .inputs
-                        .iter()
-                        .map(|arg| GenericArgument::Type(arg.ty.clone())),
-                ),
-            }
-            args
-        });
-
-    let mut hasher = rustc_hash::FxHasher::default();
-    input.self_ty.hash(&mut hasher);
-    all_orig_trait_args.hash(&mut hasher);
-    trait_name.hash(&mut hasher);
-    let trait_suffix = hasher.finish();
-
     let async_trait_lt = lt(format_ident!("async_trait"));
-    let new_trait_name = format_ident!("__async_impl_{trait_suffix}");
-
-    let mut trait_str = String::new();
-    for seg in &trait_name.segments {
-        if !trait_str.is_empty() {
-            trait_str.push('_');
-        }
-        write!(trait_str, "{}", seg.ident).unwrap();
-    }
-
     let fut_lifetime = lt(format_ident!("a"));
 
-    // TODO: Preserve these spans from the original angle-bracketed args if there were any
-    let new_trait_path_args = if !all_orig_trait_args.is_empty() {
-        PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-            colon2_token: None,
-            lt_token: Lt::default(),
-            args: Punctuated::from_iter(all_orig_trait_args.clone()),
-            gt_token: Gt::default(),
-        })
-    } else {
-        PathArguments::None
-    };
-
-    let new_trait_path = Path {
-        leading_colon: None,
-        segments: Punctuated::from_iter([PathSegment {
-            ident: new_trait_name.clone(),
-            arguments: new_trait_path_args.clone(),
-        }]),
-    };
-
-    let mut new_async_sigs = Vec::new();
-    let new_impl = {
-        let mut new_impl = input.clone();
-        new_impl.trait_ = Some((new_trait_path.clone(), For::default()));
-
-        new_impl.items.retain_mut(|i| match i {
-            ImplItem::Fn(f) if f.sig.asyncness.is_some() => {
-                f.sig.ident = format_ident!("{}_{trait_suffix}", f.sig.ident);
-                f.sig.asyncness = None;
-
-                LifetimeUnifier.visit_signature_mut(&mut f.sig);
-                f.sig
-                    .generics
-                    .params
-                    .push(GenericParam::Lifetime(LifetimeParam {
-                        attrs: Vec::new(),
-                        lifetime: fut_lifetime.clone(),
-                        colon_token: None,
-                        bounds: Punctuated::new(),
-                    }));
-
-                let orig_return_ty = match f.sig.output {
-                    ReturnType::Default => Type::Tuple(TypeTuple {
-                        attrs: Vec::new(),
-                        paren_token: Paren::default(),
-                        elems: Punctuated::new(),
-                    }),
-                    ReturnType::Type(_, ref ty) => (**ty).clone(),
-                };
-                transform_sig_output(&mut f.sig.output, &fut_lifetime);
-
-                let local_return_ident = format_ident!("ret");
-                let orig_type_hint_stmt = Stmt::Expr(
-                    Expr::If(ExprIf {
-                        attrs: Vec::new(),
-                        if_token: If::default(),
-                        cond: Box::new(Expr::Let(ExprLet {
-                            attrs: Vec::new(),
-                            let_token: Let::default(),
-                            pat: Box::new(Pat::TupleStruct(PatTupleStruct {
-                                // `::core::option::Some(ret)`
-                                attrs: Vec::new(),
-                                qself: None,
-                                path: Path {
-                                    leading_colon: Some(PathSep::default()),
-                                    segments: Punctuated::from_iter([
-                                        path_seg("core"),
-                                        path_seg("option"),
-                                        path_seg("Option"),
-                                        path_seg("Some"),
-                                    ]),
-                                },
-                                paren_token: Paren::default(),
-                                elems: Punctuated::from_iter([Pat::Path(PatPath {
-                                    attrs: Vec::new(),
-                                    qself: None,
-                                    path: ident_to_path(local_return_ident.clone()),
-                                })]),
-                            })),
-                            eq_token: Eq::default(),
-                            expr: Box::new(Expr::Path(ExprPath {
-                                // ::core::Option::<orig_return_ty>::None
-                                attrs: Vec::new(),
-                                qself: None,
-                                path: Path {
-                                    leading_colon: Some(PathSep::default()),
-                                    segments: Punctuated::from_iter([
-                                        path_seg("core"),
-                                        path_seg("option"),
-                                        path_seg("Option"),
-                                        PathSegment {
-                                            ident: format_ident!("None"),
-                                            arguments: PathArguments::AngleBracketed(
-                                                AngleBracketedGenericArguments {
-                                                    colon2_token: Some(PathSep::default()),
-                                                    lt_token: Lt::default(),
-                                                    args: Punctuated::from_iter([
-                                                        GenericArgument::Type(
-                                                            orig_return_ty.clone(),
-                                                        ),
-                                                    ]),
-                                                    gt_token: Gt::default(),
-                                                },
-                                            ),
-                                        },
-                                    ]),
-                                },
-                            })),
-                        })),
-                        then_branch: Block {
-                            brace_token: Brace::default(),
-                            stmts: vec![Stmt::Expr(
-                                Expr::Return(ExprReturn {
-                                    attrs: Vec::new(),
-                                    return_token: Return::default(),
-                                    expr: Some(Box::new(Expr::Path(ExprPath {
-                                        attrs: Vec::new(),
-                                        qself: None,
-                                        path: ident_to_path(local_return_ident.clone()),
-                                    }))),
-                                }),
-                                None,
-                            )],
-                        },
-                        else_branch: None,
-                    }),
-                    Some(Semi::default()),
-                );
-
-                let orig_block = f.block.clone();
-
-                let local_stmt = Stmt::Local(Local {
-                    attrs: Vec::new(),
-                    let_token: Let::default(),
-                    modifiers: LocalModifiers::default(),
-                    pat: Pat::Type(PatType {
-                        attrs: Vec::new(),
-                        pat: Box::new(Pat::Ident(PatIdent {
-                            attrs: Vec::new(),
-                            by_ref: None,
-                            mutability: None,
-                            ident: local_return_ident.clone(),
-                            subpat: None,
-                        })),
-                        colon_token: Colon::default(),
-                        ty: Box::new(orig_return_ty),
-                    }),
-                    init: Some(LocalInit {
-                        eq_token: Eq::default(),
-                        expr: Box::new(Expr::Block(ExprBlock {
-                            attrs: Vec::new(),
-                            label: None,
-                            block: orig_block,
-                        })),
-                        diverge: None,
-                    }),
-                    semi_token: Semi::default(),
-                });
-
-                let return_stmt = Stmt::Expr(
-                    Expr::Path(ExprPath {
-                        attrs: vec![Attribute {
-                            pound_token: Pound::default(),
-                            style: syn::AttrStyle::Outer,
-                            bracket_token: Bracket::default(),
-                            meta: Meta::List(MetaList {
-                                path: ident_to_path(format_ident!("allow")),
-                                delimiter: syn::MacroDelimiter::Paren(Paren::default()),
-                                tokens: quote::quote! { unreachable_code },
-                            }),
-                        }],
-                        qself: None,
-                        path: ident_to_path(local_return_ident),
-                    }),
-                    None,
-                );
-
-                let call_expr = Expr::Call(ExprCall {
-                    attrs: Vec::new(),
-                    func: Box::new(Expr::Path(ExprPath {
-                        attrs: Vec::new(),
-                        qself: None,
-                        path: Path {
-                            leading_colon: Some(PathSep::default()),
-                            segments: Punctuated::from_iter([
-                                path_seg("std"),
-                                path_seg("boxed"),
-                                path_seg("Box"),
-                                path_seg("pin"),
-                            ]),
-                        },
-                    })),
-                    paren_token: Paren::default(),
-                    args: Punctuated::from_iter([Expr::Async(ExprAsync {
-                        attrs: vec![Attribute {
-                            pound_token: Pound::default(),
-                            style: syn::AttrStyle::Outer,
-                            bracket_token: Bracket::default(),
-                            meta: Meta::List(MetaList {
-                                path: ident_to_path(format_ident!("allow")),
-                                delimiter: syn::MacroDelimiter::Paren(Paren::default()),
-                                // this async lint doesn't fire on async functions that yield
-                                // awaitable types, but does fire on async bodies that do.
-                                tokens: quote::quote! { clippy::async_yields_async, clippy::diverging_sub_expression},
-                            }),
-                        }],
-                        async_token: Async::default(),
-                        capture: Some(Move::default()),
-                        modifiers: BlockModifiers::default(),
-                        block: Block {
-                            brace_token: Brace::default(),
-                            stmts: vec![orig_type_hint_stmt, local_stmt, return_stmt],
-                        },
-                    })]),
-                });
-
-                let mut new_async_sig = f.sig.clone();
-                make_inputs_not_mut_pats(&mut new_async_sig.inputs);
-                new_async_sigs.push(new_async_sig);
-
-                f.block.stmts = vec![Stmt::Expr(call_expr, None)];
-                true
-            }
-            _ => false,
-        });
-
-        new_impl
-    };
-
-    let new_trait_generic_params = input
-        .generics
-        .params
-        .iter()
-        .filter(|param| match param {
-            GenericParam::Const(ConstParam { ident, .. })
-            | GenericParam::Type(TypeParam { ident, .. }) => {
-                all_orig_trait_args.iter().any(|arg| {
-                    matches!(
-                        arg,
-                        GenericArgument::Type(Type::Path(TypePath { path, .. }))
-                            if path.segments.last().is_some_and(|s| s.ident == *ident)
-                                && path.segments.len() == 1
-                    )
-                })
-            }
-            GenericParam::Lifetime(LifetimeParam { lifetime, .. }) => {
-                all_orig_trait_args.iter().any(|arg| {
-                    matches!(
-                        arg,
-                        GenericArgument::Lifetime(lt) if lt.ident == lifetime.ident
-                    )
-                })
-            }
-        })
-        .cloned()
-        .collect::<Punctuated<GenericParam, Comma>>();
-
-    let new_trait = ItemTrait {
-        attrs: Vec::new(),
-        vis: syn::Visibility::Inherited,
-        modifiers: TraitModifiers::default(),
-        unsafety: None,
-        trait_token: Trait::default(),
-        ident: new_trait_name.clone(),
-        generics: Generics {
-            lt_token: Some(Lt::default()),
-            params: new_trait_generic_params,
-            gt_token: Some(Gt::default()),
-            // TODO: copy Where-clause over
-            where_clause: None,
-        },
-        colon_token: None,
-        supertraits: Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
-            paren_token: None,
-            lifetimes: None,
-            modifiers: TraitBoundModifiers::default(),
-            maybe: None,
-            path: trait_name.clone(),
-        })]),
-        brace_token: Brace::default(),
-        items: new_async_sigs
-            .into_iter()
-            .map(|sig| {
-                TraitItem::Fn(TraitItemFn {
-                    attrs: Vec::new(),
-                    modifiers: FnModifiers::default(),
-                    sig,
-                    default: None,
-                    semi_token: Some(Semi::default()),
-                })
-            })
-            .collect(),
-    };
-
-    let new_trait_ts = quote::quote! {
-        #new_trait
-
-        #new_impl
-    };
+    let inner_fn_ident = format_ident!("inner");
+    let trait_items = input.items.clone();
 
     for item in &mut input.items {
         let ImplItem::Fn(f) = item else {
@@ -742,14 +527,289 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         // Reset its asyncness
         f.sig.asyncness = None;
 
-        let fn_path_args = generic_params_to_args(&f.sig.generics.params);
+        let orig_return_ty = match f.sig.output {
+            ReturnType::Default => Type::Tuple(TypeTuple {
+                attrs: Vec::new(),
+                paren_token: Paren::default(),
+                elems: Punctuated::new(),
+            }),
+            ReturnType::Type(_, ref ty) => (**ty).clone(),
+        };
+
+        let inner_fn_where_clause = Some(WhereClause {
+            where_token: Where::default(),
+            predicates: f
+                .sig
+                .generics
+                .where_clause
+                .iter()
+                .flat_map(|w| &w.predicates)
+                .chain(
+                    input
+                        .generics
+                        .where_clause
+                        .iter()
+                        .flat_map(|w| &w.predicates),
+                )
+                .cloned()
+                .chain([WherePredicate::Type(PredicateType {
+                    attrs: Vec::new(),
+                    lifetimes: None,
+                    bounded_ty: (*input.self_ty).clone(),
+                    colon_token: Colon::default(),
+                    bounds: Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
+                        paren_token: None,
+                        lifetimes: None,
+                        modifiers: TraitBoundModifiers::default(),
+                        maybe: None,
+                        path: trait_name.clone(),
+                    })]),
+                })])
+                .collect(),
+        });
+
+        let mut inner_fn_generics = Generics {
+            lt_token: None,
+            params: Punctuated::from_iter([GenericParam::Lifetime(LifetimeParam {
+                attrs: Vec::new(),
+                lifetime: fut_lifetime.clone(),
+                colon_token: None,
+                bounds: Punctuated::new(),
+            })]),
+            gt_token: None,
+            where_clause: inner_fn_where_clause,
+        };
+
+        if !f.sig.generics.params.is_empty() || !input.generics.params.is_empty() {
+            inner_fn_generics.lt_token = Some(Lt::default());
+            inner_fn_generics.params.extend(
+                input
+                    .generics
+                    .params
+                    .iter()
+                    .chain(&f.sig.generics.params)
+                    .cloned(),
+            );
+            inner_fn_generics.gt_token = Some(Gt::default());
+        }
+
+        // we're not specifying any args 'cause they're unified and we want them to be implied
+        let inner_fn_generic_args = inner_fn_generics
+            .params
+            .iter()
+            .filter_map(|p| match p {
+                GenericParam::Lifetime(_) => None,
+                GenericParam::Type(TypeParam { ident, .. })
+                | GenericParam::Const(ConstParam { ident, .. }) => {
+                    Some(GenericArgument::Type(ident_to_ty_path(ident.clone())))
+                }
+            })
+            .collect();
+
+        let local_return_ident = format_ident!("ret");
+        let orig_type_hint_stmt = Stmt::Expr(
+            Expr::If(ExprIf {
+                attrs: Vec::new(),
+                if_token: If::default(),
+                cond: Box::new(Expr::Let(ExprLet {
+                    attrs: Vec::new(),
+                    let_token: Let::default(),
+                    pat: Box::new(Pat::TupleStruct(PatTupleStruct {
+                        // `::core::option::Some(ret)`
+                        attrs: Vec::new(),
+                        qself: None,
+                        path: Path {
+                            leading_colon: Some(PathSep::default()),
+                            segments: Punctuated::from_iter([
+                                path_seg("core"),
+                                path_seg("option"),
+                                path_seg("Option"),
+                                path_seg("Some"),
+                            ]),
+                        },
+                        paren_token: Paren::default(),
+                        elems: Punctuated::from_iter([Pat::Path(PatPath {
+                            attrs: Vec::new(),
+                            qself: None,
+                            path: ident_to_path(local_return_ident.clone()),
+                        })]),
+                    })),
+                    eq_token: Eq::default(),
+                    expr: Box::new(Expr::Path(ExprPath {
+                        // ::core::Option::<orig_return_ty>::None
+                        attrs: Vec::new(),
+                        qself: None,
+                        path: Path {
+                            leading_colon: Some(PathSep::default()),
+                            segments: Punctuated::from_iter([
+                                path_seg("core"),
+                                path_seg("option"),
+                                path_seg("Option"),
+                                PathSegment {
+                                    ident: format_ident!("None"),
+                                    arguments: PathArguments::AngleBracketed(
+                                        AngleBracketedGenericArguments {
+                                            colon2_token: Some(PathSep::default()),
+                                            lt_token: Lt::default(),
+                                            args: Punctuated::from_iter([GenericArgument::Type(
+                                                orig_return_ty.clone(),
+                                            )]),
+                                            gt_token: Gt::default(),
+                                        },
+                                    ),
+                                },
+                            ]),
+                        },
+                    })),
+                })),
+                then_branch: Block {
+                    brace_token: Brace::default(),
+                    stmts: vec![Stmt::Expr(
+                        Expr::Return(ExprReturn {
+                            attrs: Vec::new(),
+                            return_token: Return::default(),
+                            expr: Some(Box::new(Expr::Path(ExprPath {
+                                attrs: Vec::new(),
+                                qself: None,
+                                path: ident_to_path(local_return_ident.clone()),
+                            }))),
+                        }),
+                        None,
+                    )],
+                },
+                else_branch: None,
+            }),
+            Some(Semi::default()),
+        );
+
+        let orig_block = f.block.clone();
+
+        let local_stmt = Stmt::Local(Local {
+            attrs: Vec::new(),
+            let_token: Let::default(),
+            modifiers: LocalModifiers::default(),
+            pat: Pat::Type(PatType {
+                attrs: Vec::new(),
+                pat: Box::new(Pat::Ident(PatIdent {
+                    attrs: Vec::new(),
+                    by_ref: None,
+                    mutability: None,
+                    ident: local_return_ident.clone(),
+                    subpat: None,
+                })),
+                colon_token: Colon::default(),
+                ty: Box::new(orig_return_ty.clone()),
+            }),
+            init: Some(LocalInit {
+                eq_token: Eq::default(),
+                expr: Box::new(Expr::Block(ExprBlock {
+                    attrs: Vec::new(),
+                    label: None,
+                    block: orig_block,
+                })),
+                diverge: None,
+            }),
+            semi_token: Semi::default(),
+        });
+
+        let return_stmt = Stmt::Expr(
+            Expr::Path(ExprPath {
+                attrs: vec![Attribute {
+                    pound_token: Pound::default(),
+                    style: syn::AttrStyle::Outer,
+                    bracket_token: Bracket::default(),
+                    meta: Meta::List(MetaList {
+                        path: ident_to_path(format_ident!("allow")),
+                        delimiter: syn::MacroDelimiter::Paren(Paren::default()),
+                        tokens: quote::quote! { unreachable_code },
+                    }),
+                }],
+                qself: None,
+                path: ident_to_path(local_return_ident),
+            }),
+            None,
+        );
+
+        let call_expr = Expr::Call(ExprCall {
+            attrs: Vec::new(),
+            func: Box::new(Expr::Path(ExprPath {
+                attrs: Vec::new(),
+                qself: None,
+                path: Path {
+                    leading_colon: Some(PathSep::default()),
+                    segments: Punctuated::from_iter([
+                        path_seg("std"),
+                        path_seg("boxed"),
+                        path_seg("Box"),
+                        path_seg("pin"),
+                    ]),
+                },
+            })),
+            paren_token: Paren::default(),
+            args: Punctuated::from_iter([Expr::Async(ExprAsync {
+                attrs: vec![Attribute {
+                    pound_token: Pound::default(),
+                    style: syn::AttrStyle::Outer,
+                    bracket_token: Bracket::default(),
+                    meta: Meta::List(MetaList {
+                        path: ident_to_path(format_ident!("allow")),
+                        delimiter: syn::MacroDelimiter::Paren(Paren::default()),
+                        // this async lint doesn't fire on async functions that yield
+                        // awaitable types, but does fire on async bodies that do.
+                        tokens: quote::quote! { clippy::async_yields_async, clippy::diverging_sub_expression},
+                    }),
+                }],
+                async_token: Async::default(),
+                capture: Some(Move::default()),
+                modifiers: BlockModifiers::default(),
+                block: Block {
+                    brace_token: Brace::default(),
+                    stmts: vec![orig_type_hint_stmt, local_stmt, return_stmt],
+                },
+            })]),
+        });
+
+        let mut new_fn_sig = Signature {
+            constness: f.sig.constness,
+            asyncness: None,
+            safety: f.sig.safety.clone(),
+            abi: f.sig.abi.clone(),
+            fn_token: Fn::default(),
+            ident: inner_fn_ident.clone(),
+            generics: inner_fn_generics,
+            paren_token: Paren::default(),
+            inputs: f.sig.inputs.clone(),
+            variadic: f.sig.variadic.clone(),
+            output: {
+                let mut unified_lt_output = f.sig.output.clone();
+                transform_sig_output(&mut unified_lt_output, &fut_lifetime);
+                unified_lt_output
+            },
+        };
+        LifetimeUnifier.visit_signature_mut(&mut new_fn_sig);
+
+        let mut new_fn_inner = Stmt::Item(Item::Fn(ItemFn {
+            attrs: Vec::new(),
+            vis: syn::Visibility::Inherited,
+            modifiers: FnModifiers::default(),
+            sig: new_fn_sig,
+            block: Box::new(Block {
+                brace_token: Brace::default(),
+                stmts: vec![Stmt::Expr(call_expr, None)],
+            }),
+        }));
+
+        SelfFixerUpper {
+            change_self_to_ty: &input.self_ty,
+            trait_items: &trait_items,
+            trait_name,
+        }
+        .visit_stmt_mut(&mut new_fn_inner);
 
         // And then change its return type to what async-trait does
         transform_sig_output(&mut f.sig.output, &async_trait_lt);
         add_lifetime_bounds(&mut f.sig, &async_trait_lt);
         make_inputs_not_mut_pats(&mut f.sig.inputs);
-
-        let fn_name = &f.sig.ident;
 
         let mut new_args = Punctuated::new();
         for arg in &f.sig.inputs {
@@ -777,41 +837,28 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             attrs: Vec::new(),
             func: Box::new(Expr::Path(ExprPath {
                 attrs: Vec::new(),
-                qself: Some(QSelf {
-                    lt_token: Lt::default(),
-                    ty: Box::new(Type::Path(TypePath {
-                        attrs: Vec::new(),
-                        qself: None,
-                        path: ident_to_path(Ident::from(SelfType::default())),
-                    })),
-                    position: 1,
-                    as_token: Some(As::default()),
-                    gt_token: Gt::default(),
-                }),
+                qself: None,
                 path: Path {
                     leading_colon: None,
-                    segments: Punctuated::from_iter([
-                        PathSegment {
-                            ident: new_trait_name.clone(),
-                            arguments: new_trait_path_args.clone(),
-                        },
-                        PathSegment {
-                            ident: format_ident!("{fn_name}_{trait_suffix}"),
-                            arguments: fn_path_args,
-                        },
-                    ]),
+                    segments: Punctuated::from_iter([PathSegment {
+                        ident: inner_fn_ident.clone(),
+                        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                            colon2_token: Some(PathSep::default()),
+                            lt_token: Lt::default(),
+                            args: inner_fn_generic_args,
+                            gt_token: Gt::default(),
+                        }),
+                    }]),
                 },
             })),
             paren_token: Paren::default(),
             args: new_args,
         };
 
-        f.block.stmts = vec![Stmt::Expr(Expr::Call(call_new_fn), None)];
+        f.block.stmts = vec![new_fn_inner, Stmt::Expr(Expr::Call(call_new_fn), None)];
     }
 
     quote::quote! {
-        #new_trait_ts
-
         #input
     }
     .into()

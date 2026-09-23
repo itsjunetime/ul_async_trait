@@ -18,37 +18,6 @@ trait WithGenerics<const N: usize, T> {
         A: 'async_trait;
 }
 struct MyStruct<T>(core::marker::PhantomData<T>);
-trait __async_impl_452534731895916786<const N: usize, T>: WithGenerics<N, T> {
-    fn make_multiple_452534731895916786<'a, A>(
-        another: Wrapper<A>,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = [(T, A); N]> + ::core::marker::Send + 'a,
-        >,
-    >;
-}
-impl<const N: usize, T> __async_impl_452534731895916786<N, T> for MyStruct<T> {
-    fn make_multiple_452534731895916786<'a, A>(
-        another: Wrapper<A>,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = [(T, A); N]> + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    [(T, A); N],
-                > {
-                    return ret;
-                }
-                let ret: [(T, A); N] = { another.1 };
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-}
 impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
     fn make_multiple<'async_trait, A>(
         another: Wrapper<A>,
@@ -62,10 +31,32 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
     where
         A: 'async_trait,
     {
-        <Self as __async_impl_452534731895916786<
-            N,
-            T,
-        >>::make_multiple_452534731895916786::<A>(another)
+        fn inner<'a, const N: usize, T, A>(
+            another: Wrapper<A>,
+        ) -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<
+                    Output = [(T, A); N],
+                > + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            MyStruct<T>: WithGenerics<N, T>,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        [(T, A); N],
+                    > {
+                        return ret;
+                    }
+                    let ret: [(T, A); N] = { another.1 };
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner::<N, T, A>(another)
     }
 }
 fn main() {}

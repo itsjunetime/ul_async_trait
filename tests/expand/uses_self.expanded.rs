@@ -23,43 +23,6 @@ trait Write {
 struct MyStruct {
     s: String,
 }
-trait __async_impl_7712602578574967941: Write {
-    fn write_str_7712602578574967941<'a>(
-        &'a mut self,
-        s: &'a str,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
-        >,
-    >;
-}
-impl __async_impl_7712602578574967941 for MyStruct {
-    fn write_str_7712602578574967941<'a>(
-        &'a mut self,
-        s: &'a str,
-    ) -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    String,
-                > {
-                    return ret;
-                }
-                let ret: String = {
-                    self.s.push_str(s);
-                    other_future().await;
-                    self.s.clone()
-                };
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-}
 impl Write for MyStruct {
     fn write_str<'life0, 'life1, 'async_trait>(
         &'life0 mut self,
@@ -76,10 +39,35 @@ impl Write for MyStruct {
         'life0: 'async_trait,
         'life1: 'async_trait,
     {
-        <Self as __async_impl_7712602578574967941>::write_str_7712602578574967941(
-            self,
-            s,
-        )
+        fn inner<'a>(
+            slf: &'a mut MyStruct,
+            s: &'a str,
+        ) -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            MyStruct: Write,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        String,
+                    > {
+                        return ret;
+                    }
+                    let ret: String = {
+                        slf.s.push_str(s);
+                        other_future().await;
+                        slf.s.clone()
+                    };
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner(self, s)
     }
 }
 struct MyStructCorrect {

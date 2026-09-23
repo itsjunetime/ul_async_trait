@@ -14,37 +14,6 @@ trait ReturnsDyn {
     >;
 }
 struct ReturnsString;
-trait __async_impl_14124350369018977111: ReturnsDyn {
-    fn make_dyn_14124350369018977111<'a>() -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<
-                Output = Result<Arc<dyn Any>, &'a str>,
-            > + ::core::marker::Send + 'a,
-        >,
-    >;
-}
-impl __async_impl_14124350369018977111 for ReturnsString {
-    fn make_dyn_14124350369018977111<'a>() -> ::core::pin::Pin<
-        ::std::boxed::Box<
-            dyn ::core::future::Future<
-                Output = Result<Arc<dyn Any>, &'a str>,
-            > + ::core::marker::Send + 'a,
-        >,
-    > {
-        ::std::boxed::Box::pin(
-            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-            async move {
-                if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                    Result<Arc<dyn Any>, &'a str>,
-                > {
-                    return ret;
-                }
-                let ret: Result<Arc<dyn Any>, &'a str> = { Ok(Arc::new(String::new())) };
-                #[allow(unreachable_code)] ret
-            },
-        )
-    }
-}
 impl ReturnsDyn for ReturnsString {
     fn make_dyn<'async_trait>() -> ::core::pin::Pin<
         ::std::boxed::Box<
@@ -53,7 +22,32 @@ impl ReturnsDyn for ReturnsString {
             > + ::core::marker::Send + 'async_trait,
         >,
     > {
-        <Self as __async_impl_14124350369018977111>::make_dyn_14124350369018977111()
+        fn inner<'a>() -> ::core::pin::Pin<
+            ::std::boxed::Box<
+                dyn ::core::future::Future<
+                    Output = Result<Arc<dyn Any>, &'a str>,
+                > + ::core::marker::Send + 'a,
+            >,
+        >
+        where
+            ReturnsString: ReturnsDyn,
+        {
+            ::std::boxed::Box::pin(
+                #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+                async move {
+                    if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
+                        Result<Arc<dyn Any>, &'static str>,
+                    > {
+                        return ret;
+                    }
+                    let ret: Result<Arc<dyn Any>, &'static str> = {
+                        Ok(Arc::new(String::new()))
+                    };
+                    #[allow(unreachable_code)] ret
+                },
+            )
+        }
+        inner()
     }
 }
 struct ReturnsUsize;
