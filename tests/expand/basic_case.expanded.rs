@@ -41,10 +41,7 @@ impl MyTrait for MyStruct {
             ::std::boxed::Box<
                 dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
             >,
-        >
-        where
-            MyStruct: MyTrait,
-        {
+        > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {

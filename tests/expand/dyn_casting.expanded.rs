@@ -28,10 +28,7 @@ impl ReturnsDyn for ReturnsString {
                     Output = Result<Arc<dyn Any>, &'a str>,
                 > + ::core::marker::Send + 'a,
             >,
-        >
-        where
-            ReturnsString: ReturnsDyn,
-        {
+        > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {

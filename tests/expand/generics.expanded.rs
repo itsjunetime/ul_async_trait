@@ -39,10 +39,7 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
                     Output = [(T, A); N],
                 > + ::core::marker::Send + 'a,
             >,
-        >
-        where
-            MyStruct<T>: WithGenerics<N, T>,
-        {
+        > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {

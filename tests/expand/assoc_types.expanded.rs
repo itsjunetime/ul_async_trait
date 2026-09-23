@@ -40,15 +40,12 @@ impl UsesAssocTypes for AssocIsStaticStr {
         >,
     > {
         fn inner<'a>(
-            _a: <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+            _a: &'static str,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'a,
             >,
-        >
-        where
-            AssocIsStaticStr: UsesAssocTypes,
-        {
+        > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
@@ -74,22 +71,19 @@ impl UsesAssocTypes for AssocIsStaticStr {
         fn inner<'a>() -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<
-                    Output = <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+                    Output = &'static str,
                 > + ::core::marker::Send + 'a,
             >,
-        >
-        where
-            AssocIsStaticStr: UsesAssocTypes,
-        {
+        > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                        <AssocIsStaticStr as UsesAssocTypes>::Assoc,
+                        &'static str,
                     > {
                         return ret;
                     }
-                    let ret: <AssocIsStaticStr as UsesAssocTypes>::Assoc = { "" };
+                    let ret: &'static str = { "" };
                     #[allow(unreachable_code)] ret
                 },
             )

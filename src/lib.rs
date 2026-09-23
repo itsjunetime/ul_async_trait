@@ -363,32 +363,185 @@ fn make_inputs_not_mut_pats(args: &mut Punctuated<FnArg, Comma>) {
     }
 }
 
+#[expect(clippy::large_enum_variant)]
+enum ChangeToTraitItem {
+    No,
+    Ty(Type),
+    ConstOrFn,
+}
+
 struct SelfFixerUpper<'a> {
     change_self_to_ty: &'a Type,
+    // TODO: These are necessary to change `Ty::Assoc` to `<Ty as Trait>::Assoc`, which won't be
+    // necessary if https://github.com/rust-lang/rust/issues/104119 gets closed
     trait_items: &'a [ImplItem],
     trait_name: &'a Path,
 }
 
+#[derive(Debug)]
+enum PathWrapper<'a> {
+    Expr(&'a mut ExprPath),
+    Type(&'a mut Type),
+    Pat(&'a mut PatTupleStruct)
+}
+
+impl PathWrapper<'_> {
+    fn replace_with_ty(self, new_ty: Type) {
+        match self {
+            Self::Expr(ExprPath { qself, path, .. }) |
+            Self::Pat(PatTupleStruct { qself, path, .. }) => {
+                *qself = Some(QSelf {
+                    lt_token: Lt::default(),
+                    ty: Box::new(new_ty),
+                    position: 0,
+                    as_token: None,
+                    gt_token: Gt::default()
+                });
+                *path = Path {
+                    leading_colon: None,
+                    segments: Punctuated::new()
+                };
+            }
+            Self::Type(ty) => *ty = new_ty,
+        }
+    }
+}
+
 impl SelfFixerUpper<'_> {
-    fn ident_is_trait_item(&self, given_ident: &Ident) -> bool {
+    fn ident_is_trait_item(&self, given_ident: &Ident) -> ChangeToTraitItem {
         for item in self.trait_items {
             match item {
-                ImplItem::Const(ImplItemConst { ident, .. })
-                | ImplItem::Type(ImplItemType { ident, .. })
-                    if ident == given_ident =>
-                {
-                    return true;
+                ImplItem::Const(ImplItemConst { ident, .. }) if ident == given_ident => {
+                    return ChangeToTraitItem::ConstOrFn;
                 }
-                ImplItem::Fn(ImplItemFn { sig, .. }) if sig.ident == *given_ident => return true,
+                ImplItem::Type(ImplItemType { ident, ty, .. }) if ident == given_ident => {
+                    return ChangeToTraitItem::Ty(ty.clone());
+                }
+                ImplItem::Fn(ImplItemFn { sig, .. }) if sig.ident == *given_ident => {
+                    return ChangeToTraitItem::ConstOrFn;
+                }
                 _ => (),
             }
         }
 
-        false
+        ChangeToTraitItem::No
+    }
+
+    fn fixup_simple_path(&mut self, wrapper: PathWrapper<'_>) {
+        let (qself, path) = match wrapper {
+            PathWrapper::Expr(ExprPath { qself, path, .. }) => (qself, path),
+            PathWrapper::Type(Type::Path(TypePath { qself, path, .. })) => (qself, path),
+            PathWrapper::Pat(PatTupleStruct { qself, path, .. }) => (qself, path),
+            PathWrapper::Type(_) => return,
+        };
+
+        if path.leading_colon.is_none() && path
+            .segments
+            .first()
+            .is_some_and(|seg| seg.ident == Ident::from(SelfType::default()))
+        {
+            match path.segments.get(1) {
+                // if path is just `Self`, then we can just completely replace the type
+                None => wrapper.replace_with_ty(self.change_self_to_ty.clone()),
+                // If there's more, then it's like `Self::AssocType`. `assoc_item` is `AssocType`.
+                Some(assoc_item) => {
+                    // otherwise, we want to make it a qself.
+                    let mut new_qself = QSelf {
+                        lt_token: Lt::default(),
+                        ty: Box::new(self.change_self_to_ty.clone()),
+                        position: 0,
+                        as_token: None,
+                        gt_token: Gt::default(),
+                    };
+
+                    // Even if there's another trait in-scope which has the same associated type, if
+                    // it's in the body of this trait fn, it uses the correct one without asking, so we
+                    // can comfortably replace them here. See:
+                    // https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=0ab59d006a37db90ce97ee2f7bdca781
+
+                    match self.ident_is_trait_item(&assoc_item.ident) {
+                        // if the assoc item is not something that we know of, then we want to
+                        // change the type to `<Ty>::Assoc`. Need to use QSelf in case `Ty` isn't a
+                        // path ty
+                        ChangeToTraitItem::No => match self.change_self_to_ty {
+                            Type::Path(ty_path) => {
+                                // TODO: ugh i guess we have to figure out a way to pipe attributes
+                                // attrs.extend(ty_path.attrs);
+                                *qself = None;
+                                *path = Path {
+                                    segments: ty_path.path.segments.iter()
+                                        .chain(path.segments.iter().skip(1))
+                                        .cloned()
+                                        .collect(),
+                                    leading_colon: ty_path.path.leading_colon
+                                };
+                            },
+                            _ => {
+                                *qself = Some(new_qself);
+                                *path = Path {
+                                    segments: path.segments.iter().skip(1).cloned().collect(),
+                                    leading_colon: Some(PathSep::default()),
+                                };
+                            }
+                        }
+                        // if it's a const or a fn that we're aware of, we can't resolve it to a
+                        // concrete type. so we want to make it `<Ty as ::module::Trait>::fn_name` or
+                        // `<Ty or ::module::Trait>::CONST`
+                        ChangeToTraitItem::ConstOrFn => {
+                            new_qself.as_token = Some(As::default());
+                            new_qself.position = self.trait_name.segments.len();
+                            *qself = Some(new_qself);
+                            *path = Path {
+                                segments: Punctuated::from_iter(
+                                    self.trait_name
+                                        .segments
+                                        .iter()
+                                        .chain(path.segments.iter().skip(1))
+                                        .cloned(),
+                                ),
+                                leading_colon: self.trait_name.leading_colon,
+                            };
+                        }
+                        // if the path is e.g. `Self::Assoc::OtherAssoc`, then we want to turn it
+                        // into `<AssocType>::OtherAssoc`. But if it's `Self::Assoc` then we want to
+                        // turn it into `AssocType`
+                        ChangeToTraitItem::Ty(ty) => {
+                            if path.segments.len() > 2 {
+                                // need to just change QSelf, with `ty` as base
+                                *qself = Some(QSelf {
+                                    lt_token: Lt::default(),
+                                    ty: Box::new(ty),
+                                    position: 0,
+                                    as_token: None,
+                                    gt_token: Gt::default(),
+                                });
+                                path.segments = path.segments.iter().skip(2).cloned().collect();
+                            } else {
+                                wrapper.replace_with_ty(ty);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 impl VisitMut for SelfFixerUpper<'_> {
+    fn visit_expr_path_mut(&mut self, i: &mut syn::ExprPath) {
+        if path_is_self_value(&i.path) {
+            i.path.segments = Punctuated::from_iter([path_seg("slf")])
+        }
+        self.fixup_simple_path(PathWrapper::Expr(i));
+
+        syn::visit_mut::visit_expr_path_mut(self, i);
+    }
+
+    fn visit_pat_tuple_struct_mut(&mut self, i: &mut syn::PatTupleStruct) {
+        self.fixup_simple_path(PathWrapper::Pat(i));
+        syn::visit_mut::visit_pat_tuple_struct_mut(self, i);
+    }
+
     // Need to transform:
     // 1. `Self::Assoc` to `<Ty>::Assoc`
     // 2. `<Self as Thing>::Assoc` to `<Ty as Thing>::Assoc` (No brackets)
@@ -397,60 +550,7 @@ impl VisitMut for SelfFixerUpper<'_> {
     // So. if the type is path of length 1 and only `Self`, then we gotta just replace the type
     // entirely. otherwise, replace qself.
     fn visit_type_mut(&mut self, i: &mut syn::Type) {
-        if let Type::Path(TypePath {
-            qself: qself @ None,
-            path,
-            ..
-        }) = i
-            && path.leading_colon.is_none()
-            && path
-                .segments
-                .first()
-                .is_some_and(|seg| seg.ident == Ident::from(SelfType::default()))
-        {
-            if path.segments.len() == 1 {
-                *i = self.change_self_to_ty.clone();
-            } else {
-                let mut new_qself = QSelf {
-                    lt_token: Lt::default(),
-                    ty: Box::new(self.change_self_to_ty.clone()),
-                    position: 0,
-                    as_token: None,
-                    gt_token: Gt::default(),
-                };
-
-                // Even if there's another trait in-scope which has the same associated type, if
-                // it's in the body of this trait fn, it uses the correct one without asking, so we
-                // can comfortably replace them here. See:
-                // https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=0ab59d006a37db90ce97ee2f7bdca781
-                let new_path = if path
-                    .segments
-                    .get(1)
-                    .is_some_and(|f| self.ident_is_trait_item(&f.ident))
-                {
-                    new_qself.as_token = Some(As::default());
-                    new_qself.position = self.trait_name.segments.len();
-                    Path {
-                        segments: Punctuated::from_iter(
-                            self.trait_name
-                                .segments
-                                .iter()
-                                .chain(path.segments.iter().skip(1))
-                                .cloned(),
-                        ),
-                        leading_colon: self.trait_name.leading_colon,
-                    }
-                } else {
-                    Path {
-                        segments: path.segments.iter().skip(1).cloned().collect(),
-                        leading_colon: Some(PathSep::default()),
-                    }
-                };
-
-                *qself = Some(new_qself);
-                *path = new_path;
-            }
-        }
+        self.fixup_simple_path(PathWrapper::Type(i));
 
         syn::visit_mut::visit_type_mut(self, i);
     }
@@ -489,13 +589,6 @@ impl VisitMut for SelfFixerUpper<'_> {
             })
         }
         syn::visit_mut::visit_fn_arg_mut(self, i);
-    }
-
-    fn visit_expr_path_mut(&mut self, i: &mut syn::ExprPath) {
-        if path_is_self_value(&i.path) {
-            i.path.segments = Punctuated::from_iter([path_seg("slf")])
-        }
-        syn::visit_mut::visit_expr_path_mut(self, i);
     }
 }
 
@@ -552,19 +645,6 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         .flat_map(|w| &w.predicates),
                 )
                 .cloned()
-                .chain([WherePredicate::Type(PredicateType {
-                    attrs: Vec::new(),
-                    lifetimes: None,
-                    bounded_ty: (*input.self_ty).clone(),
-                    colon_token: Colon::default(),
-                    bounds: Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
-                        paren_token: None,
-                        lifetimes: None,
-                        modifiers: TraitBoundModifiers::default(),
-                        maybe: None,
-                        path: trait_name.clone(),
-                    })]),
-                })])
                 .collect(),
         });
 

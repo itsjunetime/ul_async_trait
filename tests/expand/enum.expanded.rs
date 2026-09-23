@@ -1,76 +1,70 @@
-async fn other_future() {}
-trait Write {
+enum Whatever {
+    Thing(usize),
+}
+enum OtherWhatever {
+    Thing(usize),
+}
+trait AddOne {
     #[allow(
         elided_named_lifetimes,
         clippy::type_complexity,
         clippy::type_repetition_in_bounds
     )]
-    fn write_str<'life0, 'life1, 'async_trait>(
-        &'life0 mut self,
-        s: &'life1 str,
+    fn add_one<'life0, 'async_trait>(
+        &'life0 self,
     ) -> ::core::pin::Pin<
         Box<
             dyn ::core::future::Future<
-                Output = String,
+                Output = usize,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         'life0: 'async_trait,
-        'life1: 'async_trait,
         Self: 'async_trait;
 }
-struct MyStruct {
-    s: String,
-}
-impl Write for MyStruct {
-    fn write_str<'life0, 'life1, 'async_trait>(
-        &'life0 mut self,
-        s: &'life1 str,
+impl AddOne for Whatever {
+    fn add_one<'life0, 'async_trait>(
+        &'life0 self,
     ) -> ::core::pin::Pin<
         ::std::boxed::Box<
             dyn ::core::future::Future<
-                Output = String,
+                Output = usize,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         Self: 'async_trait,
         'life0: 'async_trait,
-        'life1: 'async_trait,
     {
         fn inner<'a>(
-            slf: &'a mut MyStruct,
-            s: &'a str,
+            slf: &'a Whatever,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
-                dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
+                dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
             >,
         > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                        String,
+                        usize,
                     > {
                         return ret;
                     }
-                    let ret: String = {
-                        slf.s.push_str(s);
-                        other_future().await;
-                        slf.s.clone()
+                    let ret: usize = {
+                        match slf {
+                            Whatever::Thing(o) => o + 1,
+                        }
                     };
                     #[allow(unreachable_code)] ret
                 },
             )
         }
-        inner(self, s)
+        inner(self)
     }
 }
-struct MyStructCorrect {
-    s: String,
-}
-impl Write for MyStructCorrect {
+impl AddOne for OtherWhatever {
     #[allow(
         elided_named_lifetimes,
         clippy::async_yields_async,
@@ -83,32 +77,30 @@ impl Write for MyStructCorrect {
         clippy::type_repetition_in_bounds,
         clippy::used_underscore_binding
     )]
-    fn write_str<'life0, 'life1, 'async_trait>(
-        &'life0 mut self,
-        s: &'life1 str,
+    fn add_one<'life0, 'async_trait>(
+        &'life0 self,
     ) -> ::core::pin::Pin<
         Box<
             dyn ::core::future::Future<
-                Output = String,
+                Output = usize,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
         'life0: 'async_trait,
-        'life1: 'async_trait,
         Self: 'async_trait,
     {
         Box::pin(async move {
             if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
-                String,
+                usize,
             > {
                 #[allow(unreachable_code)] return __ret;
             }
-            let mut __self = self;
-            let __ret: String = {
-                __self.s.push_str(s);
-                other_future().await;
-                __self.s.clone()
+            let __self = self;
+            let __ret: usize = {
+                match __self {
+                    Self::Thing(o) => o + 1,
+                }
             };
             #[allow(unreachable_code)] __ret
         })
