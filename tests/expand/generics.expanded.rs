@@ -18,7 +18,7 @@ trait WithGenerics<const N: usize, T> {
         A: 'async_trait;
 }
 struct MyStruct<T>(core::marker::PhantomData<T>);
-trait __async_impl_452534731895916786<const N: usize, T> {
+trait __async_impl_452534731895916786<const N: usize, T>: WithGenerics<N, T> {
     fn make_multiple_452534731895916786<'a, A>(
         another: Wrapper<A>,
     ) -> ::core::pin::Pin<

@@ -19,7 +19,7 @@ trait MyTrait {
         Self: 'async_trait;
 }
 struct MyStruct;
-trait __async_impl_15866891917791490909 {
+trait __async_impl_15866891917791490909: MyTrait {
     fn my_fn_15866891917791490909<'a>(
         &'a self,
         num: usize,

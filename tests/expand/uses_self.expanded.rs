@@ -23,7 +23,7 @@ trait Write {
 struct MyStruct {
     s: String,
 }
-trait __async_impl_7712602578574967941 {
+trait __async_impl_7712602578574967941: Write {
     fn write_str_7712602578574967941<'a>(
         &'a mut self,
         s: &'a str,

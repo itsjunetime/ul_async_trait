@@ -702,7 +702,13 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             where_clause: None,
         },
         colon_token: None,
-        supertraits: Punctuated::new(),
+        supertraits: Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
+            paren_token: None,
+            lifetimes: None,
+            modifiers: TraitBoundModifiers::default(),
+            maybe: None,
+            path: trait_name.clone(),
+        })]),
         brace_token: Brace::default(),
         items: new_async_sigs
             .into_iter()

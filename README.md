@@ -1,8 +1,6 @@
 # Unified Local Async Trait
 
-Use this instead of `#[async_trait::async_trait]` for significantly faster compile times, but it comes with a few restrictions:
-1. All associated types must be stated in fully-qualified form (no `Self::Error`, instead `<Self as Trait>::Error`)
-3. You must have no named lifetimes
+Use this instead of `#[async_trait::async_trait]` for significantly faster compile times, but it comes with one restriction: the implemented trait must have no named lifetimes
 
 Each one of these restrictions might be able to be lifted with some careful testing and validation to ensure that we don't lose the faster compile times of this crate, but for now they are what you must adhere to to obtain the faster compile times.
 

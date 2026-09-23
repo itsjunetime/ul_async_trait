@@ -14,7 +14,7 @@ trait ReturnsDyn {
     >;
 }
 struct ReturnsString;
-trait __async_impl_14124350369018977111 {
+trait __async_impl_14124350369018977111: ReturnsDyn {
     fn make_dyn_14124350369018977111<'a>() -> ::core::pin::Pin<
         ::std::boxed::Box<
             dyn ::core::future::Future<
