@@ -31,6 +31,7 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
     where
         A: 'async_trait,
     {
+        #[allow(clippy::type_complexity)]
         fn inner<'a, const N: usize, T, A>(
             another: Wrapper<A>,
         ) -> ::core::pin::Pin<

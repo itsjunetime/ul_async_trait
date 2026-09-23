@@ -39,6 +39,7 @@ impl UsesAssocTypes for AssocIsStaticStr {
             dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'async_trait,
         >,
     > {
+        #[allow(clippy::type_complexity)]
         fn inner<'a>(
             _a: &'static str,
         ) -> ::core::pin::Pin<
@@ -68,6 +69,7 @@ impl UsesAssocTypes for AssocIsStaticStr {
             > + ::core::marker::Send + 'async_trait,
         >,
     > {
+        #[allow(clippy::type_complexity)]
         fn inner<'a>() -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<

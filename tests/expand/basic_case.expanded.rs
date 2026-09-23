@@ -34,6 +34,7 @@ impl MyTrait for MyStruct {
         Self: 'async_trait,
         'life0: 'async_trait,
     {
+        #[allow(clippy::type_complexity)]
         fn inner<'a>(
             slf: &'a MyStruct,
             num: usize,

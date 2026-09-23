@@ -22,6 +22,7 @@ impl ReturnsDyn for ReturnsString {
             > + ::core::marker::Send + 'async_trait,
         >,
     > {
+        #[allow(clippy::type_complexity)]
         fn inner<'a>() -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<

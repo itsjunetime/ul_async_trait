@@ -39,6 +39,7 @@ impl Write for MyStruct {
         'life0: 'async_trait,
         'life1: 'async_trait,
     {
+        #[allow(clippy::type_complexity)]
         fn inner<'a>(
             slf: &'a mut MyStruct,
             s: &'a str,

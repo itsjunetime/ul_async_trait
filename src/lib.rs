@@ -382,24 +382,24 @@ struct SelfFixerUpper<'a> {
 enum PathWrapper<'a> {
     Expr(&'a mut ExprPath),
     Type(&'a mut Type),
-    Pat(&'a mut PatTupleStruct)
+    Pat(&'a mut PatTupleStruct),
 }
 
 impl PathWrapper<'_> {
     fn replace_with_ty(self, new_ty: Type) {
         match self {
-            Self::Expr(ExprPath { qself, path, .. }) |
-            Self::Pat(PatTupleStruct { qself, path, .. }) => {
+            Self::Expr(ExprPath { qself, path, .. })
+            | Self::Pat(PatTupleStruct { qself, path, .. }) => {
                 *qself = Some(QSelf {
                     lt_token: Lt::default(),
                     ty: Box::new(new_ty),
                     position: 0,
                     as_token: None,
-                    gt_token: Gt::default()
+                    gt_token: Gt::default(),
                 });
                 *path = Path {
                     leading_colon: None,
-                    segments: Punctuated::new()
+                    segments: Punctuated::new(),
                 };
             }
             Self::Type(ty) => *ty = new_ty,
@@ -435,10 +435,11 @@ impl SelfFixerUpper<'_> {
             PathWrapper::Type(_) => return,
         };
 
-        if path.leading_colon.is_none() && path
-            .segments
-            .first()
-            .is_some_and(|seg| seg.ident == Ident::from(SelfType::default()))
+        if path.leading_colon.is_none()
+            && path
+                .segments
+                .first()
+                .is_some_and(|seg| seg.ident == Ident::from(SelfType::default()))
         {
             match path.segments.get(1) {
                 // if path is just `Self`, then we can just completely replace the type
@@ -469,13 +470,16 @@ impl SelfFixerUpper<'_> {
                                 // attrs.extend(ty_path.attrs);
                                 *qself = None;
                                 *path = Path {
-                                    segments: ty_path.path.segments.iter()
+                                    segments: ty_path
+                                        .path
+                                        .segments
+                                        .iter()
                                         .chain(path.segments.iter().skip(1))
                                         .cloned()
                                         .collect(),
-                                    leading_colon: ty_path.path.leading_colon
+                                    leading_colon: ty_path.path.leading_colon,
                                 };
-                            },
+                            }
                             _ => {
                                 *qself = Some(new_qself);
                                 *path = Path {
@@ -483,7 +487,7 @@ impl SelfFixerUpper<'_> {
                                     leading_colon: Some(PathSep::default()),
                                 };
                             }
-                        }
+                        },
                         // if it's a const or a fn that we're aware of, we can't resolve it to a
                         // concrete type. so we want to make it `<Ty as ::module::Trait>::fn_name` or
                         // `<Ty or ::module::Trait>::CONST`
@@ -836,7 +840,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         delimiter: syn::MacroDelimiter::Paren(Paren::default()),
                         // this async lint doesn't fire on async functions that yield
                         // awaitable types, but does fire on async bodies that do.
-                        tokens: quote::quote! { clippy::async_yields_async, clippy::diverging_sub_expression},
+                        tokens: quote::quote! { clippy::async_yields_async, clippy::diverging_sub_expression },
                     }),
                 }],
                 async_token: Async::default(),
@@ -869,7 +873,16 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         LifetimeUnifier.visit_signature_mut(&mut new_fn_sig);
 
         let mut new_fn_inner = Stmt::Item(Item::Fn(ItemFn {
-            attrs: Vec::new(),
+            attrs: vec![Attribute {
+                pound_token: Pound::default(),
+                style: syn::AttrStyle::Outer,
+                bracket_token: Bracket::default(),
+                meta: Meta::List(MetaList {
+                    path: ident_to_path(format_ident!("allow")),
+                    delimiter: syn::MacroDelimiter::Paren(Paren::default()),
+                    tokens: quote::quote! { clippy::type_complexity },
+                }),
+            }],
             vis: syn::Visibility::Inherited,
             modifiers: FnModifiers::default(),
             sig: new_fn_sig,
