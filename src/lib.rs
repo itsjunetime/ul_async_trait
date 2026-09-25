@@ -602,7 +602,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let Some((ref trait_name, _)) = input.trait_ else {
         return quote::quote! {
-            compiler_error!("#[fast_async_trait::async_trait] may only be used on trait implementations");
+            compile_error!("#[fast_async_trait::async_trait] may only be used on trait implementations");
         }.into();
     };
 
@@ -911,7 +911,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 FnArg::Typed(t) => match &*t.pat {
                     Pat::Ident(i) => i.ident.clone(),
                     _ => return quote::quote! {
-                        compiler_error!("all types on a ul_async_trait fn must be bare identifiers; no patterns or destructuring allowed");
+                        compile_error!("all types on a ul_async_trait fn must be bare identifiers; no patterns or destructuring allowed");
                     }.into(),
                 }
             };
