@@ -13,7 +13,7 @@ use syn::{
     TypeReference, TypeTraitObject, TypeTuple, WhereClause, WherePredicate, parse_macro_input,
     punctuated::Punctuated,
     token::{
-        As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, Fn, Gt, If, Let, Lt, Move, Paren,
+        As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, Fn, Gt, If, Let, Lt, Move, Mut, Paren,
         PathSep, Pound, RArrow, Return, SelfType, SelfValue, Semi, Where,
     },
     visit::Visit,
@@ -841,21 +841,21 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             .inputs
             .iter()
             .flat_map(|i| {
-                struct IdentCollector(Vec<Ident>);
+                struct IdentCollector(Vec<(Option<Mut>, Ident)>);
                 impl Visit<'_> for IdentCollector {
                     fn visit_pat_ident(&mut self, i: &'_ syn::PatIdent) {
-                        self.0.push(i.ident.clone())
+                        self.0.push((i.mutability, i.ident.clone()))
                     }
 
                     fn visit_receiver(&mut self, i: &'_ syn::Receiver) {
-                        self.0.push(Ident::from(i.self_token));
+                        self.0.push((i.mutability, Ident::from(i.self_token)));
                     }
                 }
 
                 let mut collector = IdentCollector(Vec::new());
                 collector.visit_fn_arg(i);
 
-                collector.0.into_iter().map(|ident| {
+                collector.0.into_iter().map(|(mutability, ident)| {
                     Stmt::Local(Local {
                         attrs: Vec::new(),
                         let_token: Let::default(),
@@ -863,7 +863,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         pat: Pat::Ident(PatIdent {
                             attrs: Vec::new(),
                             by_ref: None,
-                            mutability: None,
+                            mutability,
                             ident: ident.clone(),
                             subpat: None,
                         }),
@@ -889,6 +889,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             .collect::<Vec<_>>();
 
         async_block_stmts.extend([orig_type_hint_stmt, local_stmt, return_stmt]);
+        make_inputs_not_mut_pats(&mut new_fn_sig.inputs);
 
         let call_expr = Expr::Call(ExprCall {
             attrs: Vec::new(),
