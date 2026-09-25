@@ -46,6 +46,8 @@ impl MyTrait for MyStruct {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
+                    let slf = slf;
+                    let num = num;
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
                         usize,
                     > {

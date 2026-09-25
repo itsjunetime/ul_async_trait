@@ -1,4 +1,4 @@
-struct Wrapper<A>(core::marker::PhantomData<A>, !);
+struct Wrapper<A: Send + 'static>(core::marker::PhantomData<A>, !);
 trait WithGenerics<const N: usize, T> {
     #[allow(
         elided_named_lifetimes,
@@ -15,11 +15,11 @@ trait WithGenerics<const N: usize, T> {
         >,
     >
     where
-        A: 'async_trait;
+        A: 'async_trait + Send + 'static;
 }
 struct MyStruct<T>(core::marker::PhantomData<T>);
 impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
-    fn make_multiple<'async_trait, A>(
+    fn make_multiple<'async_trait, A: Send + 'static>(
         another: Wrapper<A>,
     ) -> ::core::pin::Pin<
         ::std::boxed::Box<
@@ -32,7 +32,7 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
         A: 'async_trait,
     {
         #[allow(clippy::type_complexity)]
-        fn inner<'a, const N: usize, T, A>(
+        fn inner<'a, const N: usize, T, A: Send + 'static>(
             another: Wrapper<A>,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
@@ -44,6 +44,7 @@ impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
+                    let another = another;
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
                         [(T, A); N],
                     > {

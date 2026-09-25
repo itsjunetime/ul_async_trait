@@ -50,6 +50,7 @@ impl UsesAssocTypes for AssocIsStaticStr {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
+                    let _a = _a;
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
                         (),
                     > {

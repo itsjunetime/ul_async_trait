@@ -14,7 +14,7 @@ categories = [ "asynchronous", "rust-patterns" ]
 proc-macro = true
 
 [dependencies]
-syn = { version = "3", features = [ "full", "extra-traits", "visit-mut" ] }
+syn = { version = "3", features = [ "full", "visit-mut", "visit" ] }
 proc-macro2 = "1"
 quote = "1"
 

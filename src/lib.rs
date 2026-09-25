@@ -16,12 +16,11 @@ use syn::{
         As, Async, Brace, Bracket, Colon, Comma, Dyn, Eq, Fn, Gt, If, Let, Lt, Move, Paren,
         PathSep, Pound, RArrow, Return, SelfType, SelfValue, Semi, Where,
     },
+    visit::Visit,
     visit_mut::VisitMut,
 };
 
 // TODO: We should be able to change the generated `std::boxed` references to `alloc::boxed`, right?
-// TODO: If we can resolve associated types to their concrete types instead of to their
-// fully-qualified type paths, that would be good.
 
 fn path_seg(p: impl Display) -> PathSegment {
     PathSegment {
@@ -378,7 +377,6 @@ struct SelfFixerUpper<'a> {
     trait_name: &'a Path,
 }
 
-#[derive(Debug)]
 enum PathWrapper<'a> {
     Expr(&'a mut ExprPath),
     Type(&'a mut Type),
@@ -539,6 +537,12 @@ impl VisitMut for SelfFixerUpper<'_> {
         self.fixup_simple_path(PathWrapper::Expr(i));
 
         syn::visit_mut::visit_expr_path_mut(self, i);
+    }
+
+    fn visit_pat_ident_mut(&mut self, i: &mut syn::PatIdent) {
+        if i.ident == Ident::from(SelfValue::default()) {
+            i.ident = format_ident!("slf");
+        }
     }
 
     fn visit_pat_tuple_struct_mut(&mut self, i: &mut syn::PatTupleStruct) {
@@ -814,6 +818,78 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             None,
         );
 
+        let mut new_fn_sig = Signature {
+            constness: f.sig.constness,
+            asyncness: None,
+            safety: f.sig.safety.clone(),
+            abi: f.sig.abi.clone(),
+            fn_token: Fn::default(),
+            ident: inner_fn_ident.clone(),
+            generics: inner_fn_generics,
+            paren_token: Paren::default(),
+            inputs: f.sig.inputs.clone(),
+            variadic: f.sig.variadic.clone(),
+            output: {
+                let mut unified_lt_output = f.sig.output.clone();
+                transform_sig_output(&mut unified_lt_output, &fut_lifetime);
+                unified_lt_output
+            },
+        };
+        LifetimeUnifier.visit_signature_mut(&mut new_fn_sig);
+
+        let mut async_block_stmts = new_fn_sig
+            .inputs
+            .iter()
+            .flat_map(|i| {
+                struct IdentCollector(Vec<Ident>);
+                impl Visit<'_> for IdentCollector {
+                    fn visit_pat_ident(&mut self, i: &'_ syn::PatIdent) {
+                        self.0.push(i.ident.clone())
+                    }
+
+                    fn visit_receiver(&mut self, i: &'_ syn::Receiver) {
+                        self.0.push(Ident::from(i.self_token));
+                    }
+                }
+
+                let mut collector = IdentCollector(Vec::new());
+                collector.visit_fn_arg(i);
+
+                collector.0.into_iter().map(|ident| {
+                    Stmt::Local(Local {
+                        attrs: Vec::new(),
+                        let_token: Let::default(),
+                        modifiers: LocalModifiers::default(),
+                        pat: Pat::Ident(PatIdent {
+                            attrs: Vec::new(),
+                            by_ref: None,
+                            mutability: None,
+                            ident: ident.clone(),
+                            subpat: None,
+                        }),
+                        init: Some(LocalInit {
+                            eq_token: Eq::default(),
+                            expr: Box::new(Expr::Path(ExprPath {
+                                attrs: Vec::new(),
+                                qself: None,
+                                path: Path {
+                                    leading_colon: None,
+                                    segments: Punctuated::from_iter([PathSegment {
+                                        ident,
+                                        arguments: PathArguments::None,
+                                    }]),
+                                },
+                            })),
+                            diverge: None,
+                        }),
+                        semi_token: Semi::default(),
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+
+        async_block_stmts.extend([orig_type_hint_stmt, local_stmt, return_stmt]);
+
         let call_expr = Expr::Call(ExprCall {
             attrs: Vec::new(),
             func: Box::new(Expr::Path(ExprPath {
@@ -848,29 +924,10 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 modifiers: BlockModifiers::default(),
                 block: Block {
                     brace_token: Brace::default(),
-                    stmts: vec![orig_type_hint_stmt, local_stmt, return_stmt],
+                    stmts: async_block_stmts,
                 },
             })]),
         });
-
-        let mut new_fn_sig = Signature {
-            constness: f.sig.constness,
-            asyncness: None,
-            safety: f.sig.safety.clone(),
-            abi: f.sig.abi.clone(),
-            fn_token: Fn::default(),
-            ident: inner_fn_ident.clone(),
-            generics: inner_fn_generics,
-            paren_token: Paren::default(),
-            inputs: f.sig.inputs.clone(),
-            variadic: f.sig.variadic.clone(),
-            output: {
-                let mut unified_lt_output = f.sig.output.clone();
-                transform_sig_output(&mut unified_lt_output, &fut_lifetime);
-                unified_lt_output
-            },
-        };
-        LifetimeUnifier.visit_signature_mut(&mut new_fn_sig);
 
         let mut new_fn_inner = Stmt::Item(Item::Fn(ItemFn {
             attrs: vec![Attribute {
