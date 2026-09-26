@@ -1,3 +1,5 @@
+#![expect(dead_code, renamed_and_removed_lints)]
+
 #[async_trait::async_trait]
 trait UsesAssocTypes {
     type Assoc;

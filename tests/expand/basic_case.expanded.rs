@@ -1,3 +1,4 @@
+#![expect(dead_code, renamed_and_removed_lints)]
 trait MyTrait {
     #[allow(
         elided_named_lifetimes,
@@ -20,6 +21,7 @@ trait MyTrait {
 }
 struct MyStruct;
 impl MyTrait for MyStruct {
+    #[expect(unused_variables)]
     fn my_fn<'life0, 'async_trait>(
         &'life0 self,
         num: usize,

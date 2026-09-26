@@ -1,3 +1,4 @@
+#![expect(renamed_and_removed_lints)]
 use std::{
     sync::{Arc, atomic::{AtomicU8, Ordering}},
     thread, task::{Wake, Waker, Context, Poll},

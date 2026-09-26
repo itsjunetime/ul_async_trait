@@ -1,3 +1,5 @@
+#![expect(renamed_and_removed_lints)]
+
 use std::{
     sync::{Arc, atomic::{AtomicU8, Ordering}},
     thread,
@@ -20,7 +22,7 @@ impl Wake for MyWaker {
 static COUNTER: AtomicU8 = AtomicU8::new(0);
 static STORED_VALUE: AtomicU8 = AtomicU8::new(0);
 
-struct StoreOnDrop {};
+struct StoreOnDrop {}
 impl Drop for StoreOnDrop {
     fn drop(&mut self) {
         STORED_VALUE.store(COUNTER.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -41,7 +43,7 @@ impl Incrementer for Inc {
 }
 
 fn main() {
-    let waker = Waker::from(Arc::new(MyWaker(thread::current())))
+    let waker = Waker::from(Arc::new(MyWaker(thread::current())));
     let mut context = Context::from_waker(&waker);
 
     let orig = StoreOnDrop {};

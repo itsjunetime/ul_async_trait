@@ -1,3 +1,4 @@
+#![expect(dead_code, renamed_and_removed_lints)]
 trait UsesAssocTypes {
     type Assoc;
     #[allow(

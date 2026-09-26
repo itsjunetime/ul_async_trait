@@ -1,3 +1,5 @@
+#![expect(dead_code, renamed_and_removed_lints)]
+
 use std::{any::Any, sync::Arc};
 
 #[async_trait::async_trait]

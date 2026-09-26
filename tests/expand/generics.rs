@@ -1,3 +1,5 @@
+#![expect(dead_code, renamed_and_removed_lints)]
+
 struct Wrapper<A: Send + 'static>(core::marker::PhantomData<A>, !);
 
 #[async_trait::async_trait]
