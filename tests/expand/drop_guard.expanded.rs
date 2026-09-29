@@ -44,11 +44,13 @@ impl Incrementer for Inc {
         >,
     > {
         #[allow(clippy::type_complexity)]
-        fn inner<'a>(
+        fn inner<'ul_async_trait>(
             _store_on_drop: StoreOnDrop,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
-                dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'a,
+                dyn ::core::future::Future<
+                    Output = (),
+                > + ::core::marker::Send + 'ul_async_trait,
             >,
         > {
             ::std::boxed::Box::pin(

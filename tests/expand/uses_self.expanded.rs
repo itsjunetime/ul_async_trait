@@ -41,12 +41,14 @@ impl Write for MyStruct {
         'life1: 'async_trait,
     {
         #[allow(clippy::type_complexity)]
-        fn inner<'a>(
-            slf: &'a mut MyStruct,
-            s: &'a str,
+        fn inner<'ul_async_trait>(
+            slf: &'ul_async_trait mut MyStruct,
+            s: &'ul_async_trait str,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
-                dyn ::core::future::Future<Output = String> + ::core::marker::Send + 'a,
+                dyn ::core::future::Future<
+                    Output = String,
+                > + ::core::marker::Send + 'ul_async_trait,
             >,
         > {
             ::std::boxed::Box::pin(

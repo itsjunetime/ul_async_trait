@@ -37,12 +37,14 @@ impl MyTrait for MyStruct {
         'life0: 'async_trait,
     {
         #[allow(clippy::type_complexity)]
-        fn inner<'a>(
-            slf: &'a MyStruct,
+        fn inner<'ul_async_trait>(
+            slf: &'ul_async_trait MyStruct,
             num: usize,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
-                dyn ::core::future::Future<Output = usize> + ::core::marker::Send + 'a,
+                dyn ::core::future::Future<
+                    Output = usize,
+                > + ::core::marker::Send + 'ul_async_trait,
             >,
         > {
             ::std::boxed::Box::pin(

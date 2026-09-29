@@ -1,62 +1,63 @@
-#![expect(dead_code, renamed_and_removed_lints)]
-struct Wrapper<A: Send + 'static>(core::marker::PhantomData<A>, !);
-trait WithGenerics<const N: usize, T> {
+use core::marker::PhantomData;
+struct WithLt<'a>(PhantomData<&'a ()>);
+trait AnotherOne {
     #[allow(
         elided_named_lifetimes,
         clippy::type_complexity,
         clippy::type_repetition_in_bounds
     )]
-    fn make_multiple<'async_trait, A>(
-        another: Wrapper<A>,
+    fn another_one<'life0, 'life1, 'async_trait>(
+        a: &'life0 WithLt<'life1>,
     ) -> ::core::pin::Pin<
         Box<
             dyn ::core::future::Future<
-                Output = [(T, A); N],
+                Output = WithLt<'_>,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
-        A: 'async_trait + Send + 'static;
+        'life0: 'async_trait,
+        'life1: 'async_trait;
 }
-struct MyStruct<T>(core::marker::PhantomData<T>);
-impl<const N: usize, T> WithGenerics<N, T> for MyStruct<T> {
-    fn make_multiple<'async_trait, A: Send + 'static>(
-        another: Wrapper<A>,
+impl<'a> AnotherOne for WithLt<'a> {
+    fn another_one<'life0, 'life1, 'async_trait>(
+        _a: &'life0 WithLt<'life1>,
     ) -> ::core::pin::Pin<
         ::std::boxed::Box<
             dyn ::core::future::Future<
-                Output = [(T, A); N],
+                Output = WithLt<'_>,
             > + ::core::marker::Send + 'async_trait,
         >,
     >
     where
-        A: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
     {
         #[allow(clippy::type_complexity)]
-        fn inner<'ul_async_trait, const N: usize, T, A: Send + 'static>(
-            another: Wrapper<A>,
+        fn inner<'ul_async_trait>(
+            _a: &'ul_async_trait WithLt<'_>,
         ) -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<
-                    Output = [(T, A); N],
+                    Output = WithLt<'ul_async_trait>,
                 > + ::core::marker::Send + 'ul_async_trait,
             >,
         > {
             ::std::boxed::Box::pin(
                 #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
                 async move {
-                    let another = another;
+                    let _a = _a;
                     if let ::core::option::Option::Some(ret) = ::core::option::Option::None::<
-                        [(T, A); N],
+                        WithLt<'_>,
                     > {
                         return ret;
                     }
-                    let ret: [(T, A); N] = { another.1 };
+                    let ret: WithLt<'_> = { WithLt(PhantomData) };
                     #[allow(unreachable_code)] ret
                 },
             )
         }
-        inner::<N, T, A>(another)
+        inner(_a)
     }
 }
 fn main() {}

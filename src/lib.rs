@@ -160,7 +160,7 @@ struct LifetimeUnifier;
 impl LifetimeUnifier {
     fn change_lifetime_to_a(&mut self, l: &mut Option<Lifetime>) {
         if l.as_ref().is_none_or(|l| l.ident != "static") {
-            *l = Some(lt(format_ident!("a")));
+            *l = Some(lt(format_ident!("ul_async_trait")));
         }
     }
 }
@@ -172,7 +172,7 @@ impl VisitMut for LifetimeUnifier {
 
     fn visit_lifetime_mut(&mut self, i: &mut syn::Lifetime) {
         if i.ident != "static" {
-            *i = lt(format_ident!("a"));
+            *i = lt(format_ident!("ul_async_trait"));
         }
     }
 
@@ -185,20 +185,36 @@ impl VisitMut for LifetimeUnifier {
 
 struct LifetimeModifier<'a, 'b> {
     found_lifetimes: usize,
-    bound_lts: Vec<Lifetime>,
+    bound_lts: Vec<Ident>,
     async_trait_lt: &'a Lifetime,
     generics: &'b mut Generics,
 }
 
 enum MaybeLifetime<'a> {
-    Lt(&'a Lifetime),
+    Lt(&'a mut Lifetime),
     Slot(&'a mut Option<Lifetime>),
 }
 
+impl MaybeLifetime<'_> {
+    fn set_lt_to(&mut self, new_lt: Lifetime) {
+        match self {
+            Self::Lt(lt) => **lt = new_lt,
+            Self::Slot(opt) => **opt = Some(new_lt),
+        }
+    }
+}
+
 impl<'a, 'b> LifetimeModifier<'a, 'b> {
-    fn visit_maybe_lifetime_mut(&mut self, maybe: MaybeLifetime<'_>) {
-        let lt = match maybe {
-            MaybeLifetime::Slot(r @ None) => {
+    fn visit_maybe_lifetime_mut(&mut self, mut maybe: MaybeLifetime<'_>) {
+        let correct_lifetime: Option<&Lifetime> = match &maybe {
+            MaybeLifetime::Slot(None) => None,
+            MaybeLifetime::Slot(Some(l)) => (l.ident != "_").then_some(l),
+            MaybeLifetime::Lt(l) => (l.ident != "_").then_some(*l),
+        };
+
+        let lt = match correct_lifetime {
+            Some(lt) => lt.ident.clone(),
+            None => {
                 let l = lt(format_ident!("life{}", self.found_lifetimes));
 
                 self.generics
@@ -214,33 +230,27 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
                     }));
                 self.found_lifetimes += 1;
 
-                r.insert(l)
+                let ident = l.ident.clone();
+                maybe.set_lt_to(l);
+                ident
             }
-            MaybeLifetime::Lt(lt) => lt,
-            MaybeLifetime::Slot(Some(lt)) => lt,
         };
 
-        if self.bound_lts.contains(lt) {
+        if self.bound_lts.contains(&lt) {
             return;
         }
 
         self.bound_lts.push(lt.clone());
+        let lt_pred = lt_pred(lt, self.async_trait_lt);
 
         match self.generics.where_clause.as_mut() {
             None => {
                 self.generics.where_clause = Some(WhereClause {
                     where_token: Where::default(),
-                    predicates: Punctuated::from_iter([lt_pred(
-                        lt.ident.clone(),
-                        self.async_trait_lt,
-                    )]),
+                    predicates: Punctuated::from_iter([lt_pred]),
                 })
             }
-            Some(generics) => {
-                generics
-                    .predicates
-                    .push(lt_pred(lt.ident.clone(), self.async_trait_lt));
-            }
+            Some(generics) => generics.predicates.push(lt_pred),
         }
     }
 }
@@ -248,10 +258,12 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
 impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
     fn visit_type_reference_mut(&mut self, i: &mut syn::TypeReference) {
         self.visit_maybe_lifetime_mut(MaybeLifetime::Slot(&mut i.lifetime));
+        syn::visit_mut::visit_type_reference_mut(self, i);
     }
 
     fn visit_lifetime_mut(&mut self, i: &mut syn::Lifetime) {
         self.visit_maybe_lifetime_mut(MaybeLifetime::Lt(i));
+        syn::visit_mut::visit_lifetime_mut(self, i);
     }
 
     fn visit_receiver_mut(&mut self, rec: &mut syn::Receiver) {
@@ -280,6 +292,8 @@ impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
         if let ReceiverKind::Reference(_, ref mut lt, _) = rec.kind {
             self.visit_maybe_lifetime_mut(MaybeLifetime::Slot(lt));
         }
+
+        syn::visit_mut::visit_receiver_mut(self, rec);
     }
 }
 
@@ -605,7 +619,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let async_trait_lt = lt(format_ident!("async_trait"));
-    let fut_lifetime = lt(format_ident!("a"));
+    let fut_lifetime = lt(format_ident!("ul_async_trait"));
 
     let inner_fn_ident = format_ident!("inner");
     let trait_items = input.items.clone();
@@ -654,30 +668,27 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 .collect(),
         });
 
-        let mut inner_fn_generics = Generics {
-            lt_token: None,
-            params: Punctuated::from_iter([GenericParam::Lifetime(LifetimeParam {
-                attrs: Vec::new(),
-                lifetime: fut_lifetime.clone(),
-                colon_token: None,
-                bounds: Punctuated::new(),
-            })]),
-            gt_token: None,
-            where_clause: inner_fn_where_clause,
-        };
-
-        if !f.sig.generics.params.is_empty() || !input.generics.params.is_empty() {
-            inner_fn_generics.lt_token = Some(Lt::default());
-            inner_fn_generics.params.extend(
+        let inner_fn_generics = Generics {
+            lt_token: Some(Lt::default()),
+            params: Punctuated::from_iter(
                 input
                     .generics
                     .params
                     .iter()
                     .chain(&f.sig.generics.params)
-                    .cloned(),
-            );
-            inner_fn_generics.gt_token = Some(Gt::default());
-        }
+                    // Remove lifetime arguments since we're gonna unify them
+                    .filter(|p| !matches!(p, GenericParam::Lifetime(_)))
+                    .cloned()
+                    .chain([GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: fut_lifetime.clone(),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    })]),
+            ),
+            gt_token: Some(Gt::default()),
+            where_clause: inner_fn_where_clause,
+        };
 
         // we're not specifying any args 'cause they're unified and we want them to be implied
         let inner_fn_generic_args = inner_fn_generics.params.iter().filter_map(|p| match p {

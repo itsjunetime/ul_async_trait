@@ -24,11 +24,11 @@ impl ReturnsDyn for ReturnsString {
         >,
     > {
         #[allow(clippy::type_complexity)]
-        fn inner<'a>() -> ::core::pin::Pin<
+        fn inner<'ul_async_trait>() -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<
                     Output = Result<Arc<dyn Any>, &'static str>,
-                > + ::core::marker::Send + 'a,
+                > + ::core::marker::Send + 'ul_async_trait,
             >,
         > {
             ::std::boxed::Box::pin(
