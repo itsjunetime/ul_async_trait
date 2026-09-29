@@ -1,16 +1,16 @@
 use core::fmt::Display;
 use proc_macro::TokenStream;
-use proc_macro2::Span;
+use proc_macro2::{Group, Span};
 use quote::format_ident;
 use syn::{
-    AngleBracketedGenericArguments, ConstParam, Expr, ExprPath, FnArg, GenericArgument,
+    AngleBracketedGenericArguments, Block, ConstParam, Expr, ExprPath, FnArg, GenericArgument,
     GenericParam, Generics, Ident, ImplItem, ImplItemConst, ImplItemFn, ImplItemType, ItemImpl,
     Lifetime, LifetimeParam, Pat, PatIdent, PatTupleStruct, PatType, Path, PathArguments,
     PathSegment, PredicateLifetime, PredicateType, QSelf, ReceiverKind, ReturnType, Signature,
-    Stmt, Type, TypeParam, TypeParamBound, TypePath, TypeReference, TypeTuple, WhereClause,
+    Type, TypeParam, TypeParamBound, TypePath, TypeReference, TypeTuple, WhereClause,
     WherePredicate, parse_macro_input, parse_quote,
     punctuated::Punctuated,
-    token::{As, Colon, Comma, Fn, Gt, Lt, Mut, Paren, PathSep, SelfType, SelfValue, Semi, Where},
+    token::{As, Colon, Comma, Fn, Gt, Lt, Mut, Paren, PathSep, SelfType, SelfValue, Where},
     visit::Visit,
     visit_mut::VisitMut,
 };
@@ -159,13 +159,21 @@ struct LifetimeUnifier;
 
 impl LifetimeUnifier {
     fn change_lifetime_to_a(&mut self, l: &mut Option<Lifetime>) {
-        *l = Some(lt(format_ident!("a")));
+        if l.as_ref().is_none_or(|l| l.ident != "static") {
+            *l = Some(lt(format_ident!("a")));
+        }
     }
 }
 
 impl VisitMut for LifetimeUnifier {
     fn visit_type_reference_mut(&mut self, i: &mut syn::TypeReference) {
         self.change_lifetime_to_a(&mut i.lifetime);
+    }
+
+    fn visit_lifetime_mut(&mut self, i: &mut syn::Lifetime) {
+        if i.ident != "static" {
+            *i = lt(format_ident!("a"));
+        }
     }
 
     fn visit_receiver_kind_mut(&mut self, i: &mut syn::ReceiverKind) {
@@ -182,10 +190,15 @@ struct LifetimeModifier<'a, 'b> {
     generics: &'b mut Generics,
 }
 
+enum MaybeLifetime<'a> {
+    Lt(&'a Lifetime),
+    Slot(&'a mut Option<Lifetime>),
+}
+
 impl<'a, 'b> LifetimeModifier<'a, 'b> {
-    fn visit_maybe_lifetime_mut(&mut self, maybe: &mut Option<Lifetime>) {
+    fn visit_maybe_lifetime_mut(&mut self, maybe: MaybeLifetime<'_>) {
         let lt = match maybe {
-            None => {
+            MaybeLifetime::Slot(r @ None) => {
                 let l = lt(format_ident!("life{}", self.found_lifetimes));
 
                 self.generics
@@ -201,17 +214,17 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
                     }));
                 self.found_lifetimes += 1;
 
-                maybe.insert(l)
+                r.insert(l)
             }
-            Some(lt) => {
-                if self.bound_lts.contains(lt) {
-                    return;
-                }
-
-                self.bound_lts.push(lt.clone());
-                lt
-            }
+            MaybeLifetime::Lt(lt) => lt,
+            MaybeLifetime::Slot(Some(lt)) => lt,
         };
+
+        if self.bound_lts.contains(lt) {
+            return;
+        }
+
+        self.bound_lts.push(lt.clone());
 
         match self.generics.where_clause.as_mut() {
             None => {
@@ -234,7 +247,11 @@ impl<'a, 'b> LifetimeModifier<'a, 'b> {
 
 impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
     fn visit_type_reference_mut(&mut self, i: &mut syn::TypeReference) {
-        self.visit_maybe_lifetime_mut(&mut i.lifetime);
+        self.visit_maybe_lifetime_mut(MaybeLifetime::Slot(&mut i.lifetime));
+    }
+
+    fn visit_lifetime_mut(&mut self, i: &mut syn::Lifetime) {
+        self.visit_maybe_lifetime_mut(MaybeLifetime::Lt(i));
     }
 
     fn visit_receiver_mut(&mut self, rec: &mut syn::Receiver) {
@@ -261,7 +278,7 @@ impl<'a, 'b> VisitMut for LifetimeModifier<'a, 'b> {
         }
 
         if let ReceiverKind::Reference(_, ref mut lt, _) = rec.kind {
-            self.visit_maybe_lifetime_mut(lt);
+            self.visit_maybe_lifetime_mut(MaybeLifetime::Slot(lt));
         }
     }
 }
@@ -505,6 +522,76 @@ impl VisitMut for SelfFixerUpper<'_> {
         }
         syn::visit_mut::visit_fn_arg_mut(self, i);
     }
+
+    fn visit_token_stream_mut(&mut self, i: &mut proc_macro2::TokenStream) {
+        use proc_macro2::{TokenStream, TokenTree};
+
+        fn push_idents(ts: TokenStream, new_tt: &mut TokenStream, replace_ty_with: &Type) {
+            for tt in ts {
+                match tt {
+                    TokenTree::Ident(i) => match () {
+                        () if i == "Self" => new_tt.extend(quote::quote! { #replace_ty_with }),
+                        () if i == "self" => new_tt.extend([format_ident!("slf")]),
+                        () => new_tt.extend([i]),
+                    },
+                    TokenTree::Group(g) => {
+                        let mut inner_tt = TokenStream::new();
+                        push_idents(g.stream(), &mut inner_tt, replace_ty_with);
+
+                        new_tt.extend([Group::new(g.delimiter(), inner_tt)]);
+                    }
+                    _ => new_tt.extend([tt]),
+                }
+            }
+        }
+
+        let mut new_tt = TokenStream::default();
+        push_idents(i.clone(), &mut new_tt, self.change_self_to_ty);
+
+        *i = new_tt;
+    }
+}
+
+fn new_fn_block<'a>(
+    orig_return_ty: &'a Type,
+    orig_block: &'a Block,
+    fn_inputs: impl IntoIterator<Item = &'a FnArg>,
+) -> proc_macro2::TokenStream {
+    let capture_stmts = fn_inputs.into_iter().flat_map(|i| {
+        struct IdentCollector(Vec<(Option<Mut>, Ident)>);
+        impl Visit<'_> for IdentCollector {
+            fn visit_pat_ident(&mut self, i: &'_ syn::PatIdent) {
+                self.0.push((i.mutability, i.ident.clone()))
+            }
+
+            fn visit_receiver(&mut self, i: &'_ syn::Receiver) {
+                self.0.push((i.mutability, Ident::from(i.self_token)));
+            }
+        }
+
+        let mut collector = IdentCollector(Vec::new());
+        collector.visit_fn_arg(i);
+
+        collector
+            .0
+            .into_iter()
+            .map(|(mutability, ident)| quote::quote!(let #mutability #ident = #ident;))
+    });
+
+    let local_return_path = path_seg("ret");
+    quote::quote!({
+        ::std::boxed::Box::pin(
+            #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
+            async move {
+                #(#capture_stmts)*
+                if let ::core::option::Option::Some(#local_return_path) = ::core::option::Option::None::<#orig_return_ty> {
+                    return #local_return_path;
+                }
+                let #local_return_path: #orig_return_ty = #orig_block;
+                #[allow(unreachable_code)] #local_return_path
+            }
+        )
+    })
 }
 
 #[proc_macro_attribute]
@@ -523,11 +610,14 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let inner_fn_ident = format_ident!("inner");
     let trait_items = input.items.clone();
 
+    // Go through each item in the impl
     for item in &mut input.items {
+        // If it's not a function, we don't care
         let ImplItem::Fn(f) = item else {
             continue;
         };
 
+        // and if the function isn't async, then we just keep it as-is. Nothing to change.
         if f.sig.asyncness.is_none() {
             continue;
         };
@@ -535,6 +625,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         // Reset its asyncness
         f.sig.asyncness = None;
 
+        // This is the original return type of this fn as a `Type`, not a `ReturnType`
         let orig_return_ty = match f.sig.output {
             ReturnType::Default => Type::Tuple(TypeTuple {
                 attrs: Vec::new(),
@@ -597,18 +688,7 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         });
 
-        let local_return_path = path_seg("ret");
-        let orig_type_hint_expr = parse_quote!(
-            if let ::core::option::Option::Some(#local_return_path) = ::core::option::Option::None::<#orig_return_ty> {
-                return #local_return_path;
-            }
-        );
-
-        let orig_block = f.block.clone();
-
-        let local_stmt = parse_quote!(let #local_return_path: #orig_return_ty = #orig_block;);
-
-        let return_expr: ExprPath = parse_quote!(#[allow(unreachable_code)] #local_return_path);
+        transform_sig_output(&mut f.sig.output, &async_trait_lt);
 
         let call_fn_args = angle_bracketed(true, inner_fn_generic_args);
 
@@ -623,56 +703,17 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
             paren_token: Paren::default(),
             inputs: f.sig.inputs.clone(),
             variadic: f.sig.variadic.clone(),
-            output: {
-                let mut unified_lt_output = f.sig.output.clone();
-                transform_sig_output(&mut unified_lt_output, &fut_lifetime);
-                unified_lt_output
-            },
+            output: f.sig.output.clone(),
         };
         LifetimeUnifier.visit_signature_mut(&mut new_fn_sig);
 
-        let mut async_block_stmts = new_fn_sig
-            .inputs
-            .iter()
-            .flat_map(|i| {
-                struct IdentCollector(Vec<(Option<Mut>, Ident)>);
-                impl Visit<'_> for IdentCollector {
-                    fn visit_pat_ident(&mut self, i: &'_ syn::PatIdent) {
-                        self.0.push((i.mutability, i.ident.clone()))
-                    }
+        let new_fn_block = new_fn_block(&orig_return_ty, &f.block, &new_fn_sig.inputs);
 
-                    fn visit_receiver(&mut self, i: &'_ syn::Receiver) {
-                        self.0.push((i.mutability, Ident::from(i.self_token)));
-                    }
-                }
-
-                let mut collector = IdentCollector(Vec::new());
-                collector.visit_fn_arg(i);
-
-                collector
-                    .0
-                    .into_iter()
-                    .map(|(mutability, ident)| parse_quote!(let #mutability #ident = #ident;))
-            })
-            .collect::<Vec<_>>();
-
-        async_block_stmts.extend([
-            Stmt::Expr(Expr::If(orig_type_hint_expr), Some(Semi::default())),
-            local_stmt,
-            Stmt::Expr(Expr::Path(return_expr), None),
-        ]);
         make_inputs_not_mut_pats(&mut new_fn_sig.inputs);
 
         let mut new_fn_inner = parse_quote!(
             #[allow(clippy::type_complexity)]
-            #new_fn_sig {
-                ::std::boxed::Box::pin(
-                    #[allow(clippy::async_yields_async, clippy::diverging_sub_expression)]
-                    async move {
-                        #(#async_block_stmts)*
-                    }
-                )
-            }
+            #new_fn_sig #new_fn_block
         );
 
         SelfFixerUpper {
@@ -683,7 +724,6 @@ pub fn async_trait(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .visit_stmt_mut(&mut new_fn_inner);
 
         // And then change its return type to what async-trait does
-        transform_sig_output(&mut f.sig.output, &async_trait_lt);
         add_lifetime_bounds(&mut f.sig, &async_trait_lt);
         make_inputs_not_mut_pats(&mut f.sig.inputs);
 

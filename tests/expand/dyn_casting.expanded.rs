@@ -27,7 +27,7 @@ impl ReturnsDyn for ReturnsString {
         fn inner<'a>() -> ::core::pin::Pin<
             ::std::boxed::Box<
                 dyn ::core::future::Future<
-                    Output = Result<Arc<dyn Any>, &'a str>,
+                    Output = Result<Arc<dyn Any>, &'static str>,
                 > + ::core::marker::Send + 'a,
             >,
         > {
